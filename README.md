@@ -23,10 +23,46 @@ python -c "from pathlib import Path; import json; from validator import validate
 
 Expect **`Not Supported`** (the source allows **3** days, not 5) plus `evidence` lines from the document.
 
+### CLI demo (`run_demo.py`)
+
+The **source document** is always the bundled policy in `data/examples.json`. You are only asked for a **question** and an **answer** (nothing else).
+
+**Option A — interactive** (run in a real terminal; you will see two labeled prompts):
+
+```powershell
+cd <repo-root>
+python run_demo.py
+```
+
+**Option B — one command, no typing at prompts** (safe for PowerShell: use **single quotes** on the answer so `$` is not treated as a variable):
+
+```powershell
+cd <repo-root>
+python run_demo.py --question "What is the annual cap?" --answer 'Up to $500 per year for approved expenses.'
+```
+
+Shorthand: `-q` / `-a`. If you run `run_demo.py` with **no** arguments while stdin is **not** a TTY (e.g. an empty pipe), the script **exits with an error** instead of waiting — use `--question` and `--answer` instead.
+
+The script adds `src` to the import path automatically; no `PYTHONPATH` is required.
+
+### Optional web UI (`web_demo.py`)
+
+Single-page form: question, answer, and document (defaults to the bundled policy). Install Flask first:
+
+```powershell
+pip install -r requirements-web.txt
+python web_demo.py
+```
+
+Open **http://127.0.0.1:5000**, click **Validate**, and read the JSON result (`verdict`, `confidence`, `reason`, `evidence`).
+
 ## Layout
 
 - `data/examples.json` — one policy document and 30 labeled examples.
 - `src/validator/` — validation pipeline (`text_utils`, `scoring`, `validator`).
+- `run_demo.py` — interactive CLI demo (bundled document).
+- `web_demo.py` — optional Flask UI (same validator; paste any document).
+- `requirements-web.txt` — Flask only, for `web_demo.py`.
 - `tests/evaluate_examples.py` — runs all examples and prints accuracy metrics.
 
 ## Run evaluation
