@@ -1,0 +1,2 @@
+# Optional: minimal UI for web_demo.py only
+flask>=3.0,<4
