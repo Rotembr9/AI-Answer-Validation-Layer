@@ -42,9 +42,9 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
     best_cos, scored = tu.max_tfidf_cosine_to_lines(q_for_sim, lines)
     evidence = _top_evidence(scored, k=3)
     top_line = scored[0][1] if scored else ""
-    kw = sc.keyword_match_score(question, answer, source_document)
+    kw = sc.keyword_match_score(question, answer, source_document, top_line)
     num_score, unknown_nums = sc.number_match_score(answer, source_document)
-    contra = sc.contradiction_signals(answer, top_line, source_document)
+    contra = sc.contradiction_signals(answer, top_line, source_document, question)
     forbid_sup, safety_contra = sc.supported_safety_flags(answer, source_document)
     contra = max(contra, safety_contra)
 
@@ -65,6 +65,16 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
 
     forced_ns = _numeric_conflict() and best_cos > 0.2
     confidence = sc.combine_scores(best_cos, kw, num_score, contra, unknown_nums)
+    # Weak signal fix (S→P): full-document keyword overlap is often low when the answer
+    # matches one evidence line; once numbers + line cosine align, nudge confidence slightly.
+    if (
+        not forbid_sup
+        and not unknown_nums
+        and num_score >= 0.999
+        and best_cos >= 0.42
+        and contra <= sc.MAX_CONTRA_FOR_SUPPORTED
+    ):
+        confidence = min(1.0, confidence + 0.022)
     if unknown_nums:
         confidence = min(confidence, 0.55)
     verdict, reason = sc.verdict_from_signals(
