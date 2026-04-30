@@ -1,0 +1,185 @@
+{
+  "source_document": "REMOTE WORK AND EXPENSE POLICY (Effective January 1, 2025)\n\n1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.\n2. Remote work: Employees may work remotely up to 3 days per week without extra approval. A 4th remote day in the same week requires written manager approval received before that week begins.\n3. Annual home-office stipend: Up to $500 per calendar year for approved expenses; amounts above $500 are not reimbursed.\n4. Submission deadline: Expense reports must be submitted by the 15th day of the month following the purchase. Reports received after the 15th are denied for that purchase period.\n5. Support response time: Non-urgent tickets receive a first response within 2 business days; urgent (Severity 1) tickets require a first response within 4 business hours.\n6. Equipment: Company laptops remain company property and must be returned within 10 business days after employment ends; failure to return may result in payroll deduction up to the replacement cost.",
+  "examples": [
+    {
+      "id": "S01",
+      "question": "How many remote days are allowed each week without approval?",
+      "answer": "You can work remotely up to 3 days per week without extra approval.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S02",
+      "question": "What is the annual cap on home-office reimbursement?",
+      "answer": "The policy reimburses up to $500 per calendar year for approved home-office expenses.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S03",
+      "question": "Who is eligible for the remote stipend?",
+      "answer": "Only full-time staff are eligible; contractors are not eligible for the remote stipend.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S04",
+      "question": "When must expense reports be submitted?",
+      "answer": "Expense reports must be submitted by the 15th day of the month following the purchase.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S05",
+      "question": "What if I want a fourth remote day in one week?",
+      "answer": "A fourth remote day requires written manager approval before that week begins.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S06",
+      "question": "How fast should urgent support tickets get a first response?",
+      "answer": "Urgent Severity 1 tickets require a first response within 4 business hours.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S07",
+      "question": "Are amounts above the annual stipend limit reimbursed?",
+      "answer": "No; amounts above $500 are not reimbursed under this policy.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S08",
+      "question": "What happens to company laptops after employment ends?",
+      "answer": "Company laptops must be returned within 10 business days after employment ends.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S09",
+      "question": "What is the first-response SLA for non-urgent tickets?",
+      "answer": "Non-urgent tickets receive a first response within 2 business days.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "S10",
+      "question": "What happens if I submit my expense report late?",
+      "answer": "Reports received after the 15th are denied for that purchase period.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "N01",
+      "question": "How many remote days are allowed each week without approval?",
+      "answer": "You can work remotely up to 5 days per week without any approval.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N02",
+      "question": "What is the annual cap on home-office reimbursement?",
+      "answer": "The annual cap is $1,200 per employee.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N03",
+      "question": "Are contractors eligible for the annual equipment reimbursement?",
+      "answer": "Yes, contractors are eligible for the full $500 annual reimbursement.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N04",
+      "question": "When must expense reports be submitted?",
+      "answer": "You must submit by the last day of the month; there is no grace period.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N05",
+      "question": "What if I want a fourth remote day in one week?",
+      "answer": "A fourth day is always allowed without manager approval.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N06",
+      "question": "How fast should urgent support tickets get a first response?",
+      "answer": "Urgent tickets can wait up to 2 business days for a first response.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N07",
+      "question": "Is there reimbursement above the $500 cap if I have receipts?",
+      "answer": "Yes, with manager approval you can be reimbursed above $500.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N08",
+      "question": "When do I return my laptop after leaving the company?",
+      "answer": "Laptops may be kept personally; return is optional within 30 days.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N09",
+      "question": "What is the first-response time for non-urgent tickets?",
+      "answer": "Non-urgent tickets are answered within 4 business hours.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "N10",
+      "question": "Does the policy allow remote work at all?",
+      "answer": "No, remote work is not permitted under any circumstances.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "P01",
+      "question": "How many remote days and what is the stipend cap?",
+      "answer": "You get 3 remote days per week and up to $500 per year, and contractors get the same stipend as full-time staff.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P02",
+      "question": "What are the expense rules?",
+      "answer": "Submit by the 15th of the following month; the annual cap is $500.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P03",
+      "question": "What happens with a fourth remote day?",
+      "answer": "You need manager approval, but it can be verbal anytime during the week.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P04",
+      "question": "Urgent vs non-urgent support SLAs?",
+      "answer": "Urgent tickets get a response within 4 business hours; non-urgent details are not specified in the policy.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P05",
+      "question": "Who gets the $500 reimbursement?",
+      "answer": "Full-time staff can receive up to $500; contractor eligibility is not mentioned.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P06",
+      "question": "Laptop return after termination?",
+      "answer": "You must return the laptop within 10 business days; keeping it has no financial consequences.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P07",
+      "question": "Is $600 reimbursable if I split it across two years?",
+      "answer": "The policy sets a $500 per calendar year cap; splitting purchases does not change the annual limit.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P08",
+      "question": "Deadline for January purchases?",
+      "answer": "Submit by the 15th of the following month, which for January would be February 15.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P09",
+      "question": "Can I work remotely 3 days without approval?",
+      "answer": "Yes, up to 3 days; for more days you always need approval, with no timing rules.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "P10",
+      "question": "Are expenses over $500 ever covered?",
+      "answer": "The document states amounts above $500 are not reimbursed; there is no exception listed.",
+      "expected_label": "Partial"
+    }
+  ]
+}
