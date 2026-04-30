@@ -59,11 +59,13 @@ Open **http://127.0.0.1:5000**, click **Validate**, and read the JSON result (`v
 ## Layout
 
 - `data/examples.json` — one policy document and 30 labeled examples.
+- `data/examples_holdout.json` — 30 **held-out** labeled examples (same document; different questions/answers).
 - `src/validator/` — validation pipeline (`text_utils`, `scoring`, `validator`).
 - `run_demo.py` — interactive CLI demo (bundled document).
 - `web_demo.py` — optional Flask UI (same validator; paste any document).
 - `requirements-web.txt` — Flask only, for `web_demo.py`.
 - `tests/evaluate_examples.py` — runs all examples and prints accuracy metrics.
+- `tests/generate_report.py` — builds `reports/evaluation_report.md` / `.html`.
 
 ## Run evaluation
 
@@ -80,6 +82,23 @@ Alternative (`PYTHONPATH` must include the repo root for `-m`):
 $env:PYTHONPATH = "$PWD"
 python -m tests.evaluate_examples
 ```
+
+Holdout evaluation (30 unseen labeled examples, same document):
+
+```powershell
+python tests/evaluate_examples.py data/examples_holdout.json
+```
+
+### Human-readable evaluation report (Markdown + HTML)
+
+Runs both datasets and writes **`reports/evaluation_report.md`** and **`reports/evaluation_report.html`** (executive summary, metrics, failed rows with evidence, safety highlights, plain-English notes). Saves **`reports/last_run_metrics.json`** so the next run can summarize what changed.
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python tests/generate_report.py
+```
+
+Open `reports/evaluation_report.html` in a browser, or read the `.md` file in any editor.
 
 ## Use the validator in code
 

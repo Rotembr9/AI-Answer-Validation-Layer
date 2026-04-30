@@ -1,0 +1,185 @@
+{
+  "source_document": "REMOTE WORK AND EXPENSE POLICY (Effective January 1, 2025)\n\n1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.\n2. Remote work: Employees may work remotely up to 3 days per week without extra approval. A 4th remote day in the same week requires written manager approval received before that week begins.\n3. Annual home-office stipend: Up to $500 per calendar year for approved expenses; amounts above $500 are not reimbursed.\n4. Submission deadline: Expense reports must be submitted by the 15th day of the month following the purchase. Reports received after the 15th are denied for that purchase period.\n5. Support response time: Non-urgent tickets receive a first response within 2 business days; urgent (Severity 1) tickets require a first response within 4 business hours.\n6. Equipment: Company laptops remain company property and must be returned within 10 business days after employment ends; failure to return may result in payroll deduction up to the replacement cost.",
+  "examples": [
+    {
+      "id": "H-S01",
+      "question": "When did this policy take effect?",
+      "answer": "The policy is effective January 1, 2025.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S02",
+      "question": "For a third remote workday in a week, is prior approval required?",
+      "answer": "No. Up to 3 days per week can be remote without extra approval.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S03",
+      "question": "What form of approval is required for a fourth remote day in the same week?",
+      "answer": "You need written manager approval, and it must be received before that week begins.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S04",
+      "question": "If I buy home-office items in May, by what date should I file the expense report?",
+      "answer": "By the 15th day of the month following the purchase, so for May purchases that is June 15.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S05",
+      "question": "What is the first-response target for a Severity 1 support ticket?",
+      "answer": "A first response is required within 4 business hours for urgent Severity 1 tickets.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S06",
+      "question": "What risk is mentioned if I do not return my company laptop after leaving?",
+      "answer": "The policy says payroll deduction up to the replacement cost may apply.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S07",
+      "question": "Does the $500 stipend apply per fiscal year or calendar year?",
+      "answer": "It is up to $500 per calendar year for approved expenses.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S08",
+      "question": "Who may receive the remote stipend under eligibility rules?",
+      "answer": "Full-time staff may; contractors are explicitly not eligible.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S09",
+      "question": "How long do I have after my job ends to send back the company laptop?",
+      "answer": "Within 10 business days after employment ends.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-S10",
+      "question": "Are purchases made in January reported in January?",
+      "answer": "Reports go to the following month; January purchases would be reported by the 15th of the next month.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "H-N01",
+      "question": "Is the home-office stipend available to part-time employees?",
+      "answer": "Yes, part-time employees qualify for the same $500 stipend as everyone else.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N02",
+      "question": "What is the effective date of the remote work rules?",
+      "answer": "They took effect on December 1, 2024.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N03",
+      "question": "How quickly must non-urgent tickets get a first reply?",
+      "answer": "Within one calendar day.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N04",
+      "question": "Can I expense $650 of desk equipment and get $650 back?",
+      "answer": "Yes, submit receipts and finance approves the full amount.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N05",
+      "question": "How many remote days per week need no manager sign-off?",
+      "answer": "Six remote days per week need no sign-off.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N06",
+      "question": "When is the expense deadline if I buy equipment on the 2nd of the month?",
+      "answer": "You must file by the 2nd of the following month.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N07",
+      "question": "Do contractors get the annual equipment reimbursement?",
+      "answer": "Contractors receive the same annual reimbursement as full-time employees.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N08",
+      "question": "What first-response window applies to urgent tickets?",
+      "answer": "Urgent tickets get a first response within one full business day.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N09",
+      "question": "May I keep the laptop after termination if I pay a small fee?",
+      "answer": "Yes, you may purchase the laptop at book value and keep it.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-N10",
+      "question": "What happens to expenses submitted on the 20th for last month's purchases?",
+      "answer": "They are still processed; the 15th is only a recommendation.",
+      "expected_label": "Not Supported"
+    },
+    {
+      "id": "H-P01",
+      "question": "Summarize reimbursement and remote limits together.",
+      "answer": "You may work remotely up to 3 days per week, and the annual cap is $500; part-time staff are included in the stipend.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P02",
+      "question": "How do I get a fourth remote day approved?",
+      "answer": "Ask your manager anytime during the week; written approval is preferred but not required.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P03",
+      "question": "What are the support SLAs?",
+      "answer": "Severity 1 urgent tickets get 4 business hours; the policy does not define any timeframe for non-urgent tickets.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P04",
+      "question": "Return policy for hardware after leaving?",
+      "answer": "Return the laptop within 10 business days; there is no mention of financial consequences for late return.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P05",
+      "question": "Can unused stipend roll over?",
+      "answer": "The policy caps reimbursement at $500 per calendar year; it does not say whether unused amounts carry forward.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P06",
+      "question": "Expense timing for Q1 purchases?",
+      "answer": "File by the 15th of the month after purchase; if you bought in March you could wait until April 30.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P07",
+      "question": "Who gets remote stipend money?",
+      "answer": "Full-time employees can receive it; the policy also references contractors not being eligible but does not describe hybrid roles.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P08",
+      "question": "Is remote work completely flexible?",
+      "answer": "You may work remotely up to 3 days without extra approval; additional remote days need approval with timing rules.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P09",
+      "question": "Does reimbursement ever exceed $500?",
+      "answer": "The document states amounts above $500 are not reimbursed; it does not list exceptions.",
+      "expected_label": "Partial"
+    },
+    {
+      "id": "H-P10",
+      "question": "Ticket priorities explained?",
+      "answer": "Non-urgent tickets get a first response in 2 business days; urgent Severity 1 tickets are faster but the doc does not give the urgent window.",
+      "expected_label": "Partial"
+    }
+  ]
+}

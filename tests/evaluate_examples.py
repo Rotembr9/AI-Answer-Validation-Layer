@@ -1,12 +1,14 @@
 """
-Evaluate the MVP validator on the labeled dataset in data/examples.json.
+Evaluate the MVP validator on a labeled dataset JSON file.
 
 Run from repo root:
     python tests/evaluate_examples.py
+    python tests/evaluate_examples.py data/examples_holdout.json
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -41,8 +43,23 @@ def print_matrix(expected: list[str], predicted: list[str]) -> None:
 
 
 def main() -> None:
-    doc_path = ROOT / "data" / "examples.json"
+    parser = argparse.ArgumentParser(
+        description="Evaluate validator against a labeled JSON (source_document + examples).",
+    )
+    parser.add_argument(
+        "dataset",
+        nargs="?",
+        default=str(ROOT / "data" / "examples.json"),
+        help="Path to JSON (default: data/examples.json)",
+    )
+    args = parser.parse_args()
+    doc_path = Path(args.dataset)
+    if not doc_path.is_file():
+        print(f"Error: file not found: {doc_path}", file=sys.stderr)
+        sys.exit(1)
     source_document, examples = load_examples_json(doc_path)
+    print(f"Dataset: {doc_path.resolve()}")
+    print()
 
     expected: list[str] = []
     predicted: list[str] = []
@@ -95,6 +112,18 @@ def main() -> None:
     print(
         f"Any non-Supported label -> Supported (incl. Partial): {unsafe_supported}"
     )
+    false_supported = [
+        (ex["id"], e, p)
+        for ex, e, p in zip(examples, expected, predicted)
+        if p == "Supported" and e != "Supported"
+    ]
+    print()
+    print("False Supported cases (predicted Supported, gold not Supported):")
+    if false_supported:
+        for eid, gold, _pred in false_supported:
+            print(f"  {eid}: gold={gold}")
+    else:
+        print("  (none)")
     print()
     print_matrix(expected, predicted)
     print()

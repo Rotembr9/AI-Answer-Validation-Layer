@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-04-30 13:01:41",
+  "datasets": {
+    "examples.json": {
+      "n": 30,
+      "accuracy": 1.0,
+      "supported_precision": 1.0,
+      "ns_recall": 1.0,
+      "strict_false_supported": 0,
+      "any_false_supported": 0
+    },
+    "examples_holdout.json": {
+      "n": 30,
+      "accuracy": 0.8,
+      "supported_precision": 0.7,
+      "ns_recall": 1.0,
+      "strict_false_supported": 0,
+      "any_false_supported": 0
+    }
+  }
+}
