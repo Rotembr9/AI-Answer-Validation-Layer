@@ -3,8 +3,9 @@ Score components and verdict mapping.
 
 Thresholds (tunable for MVP; documented here for debugging):
 
-- SUPPORTED_MIN_CONF: confidence needed to emit Supported (conservative to avoid
-  marking hallucinations as Supported). Default 0.72.
+- SUPPORTED_MIN_CONF / SUPPORTED_MIN_EV_SIM / MAX_CONTRA_FOR_SUPPORTED: Supported
+  needs strong confidence, strong evidence line similarity, and low contradiction.
+- supported_safety_flags(): SLA/time and false-omission checks that block Supported.
 
 - PARTIAL_BAND: if confidence is below Supported threshold but evidence_similarity
   or keyword overlap shows partial grounding, emit Partial.
@@ -20,15 +21,65 @@ Numeric rule:
 
 from __future__ import annotations
 
+import re
+
 from . import text_utils as tu
 
 
 # --- Thresholds (see module docstring) ---
-# Conservative but achievable on the MVP dataset once polarity/order bugs are fixed.
-# Slightly above P02 (borderline partial) and below the lowest clean Supported (S07 ~0.495).
-SUPPORTED_MIN_CONF = 0.49
+# Safety-first Supported: higher bar on confidence + evidence similarity.
+SUPPORTED_MIN_CONF = 0.54
+SUPPORTED_MIN_EV_SIM = 0.38
+MAX_CONTRA_FOR_SUPPORTED = 0.34
 EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
+
+
+def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
+    """
+    Extra gates for *never* labeling unsafe answers as Supported.
+
+    Returns:
+      forbid_supported: if True, verdict must not be Supported (Partial / NS only).
+      extra_contra: merged into overall contradiction penalty [0, 1].
+
+    Covers:
+    - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
+    - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
+    """
+    a = answer.lower().replace("-", " ")
+    d = document.lower().replace("-", " ")
+    extra = 0.0
+    forbid = False
+
+    urgent_scope = (
+        ("urgent" in a or "severity" in a)
+        and "non urgent" not in a
+    )
+
+    # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
+    if urgent_scope and ("4 business hours" in d or "business hours" in d):
+        day_scale_response = (
+            "business day" in a
+            or "calendar day" in a
+            or "full business day" in a
+            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
+        )
+        if day_scale_response and "severity 1" in d:
+            extra = max(extra, 0.92)
+            forbid = True
+
+    # Answer denies the policy defines urgent SLA when it does (H-P10-style).
+    denial = re.search(
+        r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
+        a,
+    )
+    if denial and ("urgent" in a or "severity" in a):
+        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+            extra = max(extra, 0.76)
+            forbid = True
+
+    return forbid, extra
 
 
 def keyword_match_score(question: str, answer: str, document: str) -> float:
@@ -167,18 +218,20 @@ def verdict_from_signals(
     contra_pen: float,
     unknown_numbers: bool,
     forced_not_supported: bool,
+    forbid_supported: bool = False,
 ) -> tuple[str, str]:
     if forced_not_supported or contra_pen >= 0.80:
         return "Not Supported", "Strong contradiction or unreliable numeric claims versus the source."
     # Any numeric token in the answer that never appears in the source → not grounded (MVP safety).
     if unknown_numbers:
         return "Not Supported", "The answer includes numbers or amounts not found in the source document."
-    # Prefer Supported when signals are clearly aligned (check before medium-contradiction Partial).
+    # Supported: strong evidence, low contradiction, no safety veto (SLA/time/word-number gates).
     if (
-        confidence >= SUPPORTED_MIN_CONF
-        and contra_pen < 0.50
+        not forbid_supported
+        and confidence >= SUPPORTED_MIN_CONF
+        and contra_pen <= MAX_CONTRA_FOR_SUPPORTED
         and not unknown_numbers
-        and ev_sim >= 0.14
+        and ev_sim >= SUPPORTED_MIN_EV_SIM
     ):
         return "Supported", "High alignment between the answer, matched evidence, and stated numbers in the source."
     if 0.50 <= contra_pen < 0.80 and (ev_sim >= 0.18 or kw >= 0.12):

@@ -45,6 +45,8 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
     kw = sc.keyword_match_score(question, answer, source_document)
     num_score, unknown_nums = sc.number_match_score(answer, source_document)
     contra = sc.contradiction_signals(answer, top_line, source_document)
+    forbid_sup, safety_contra = sc.supported_safety_flags(answer, source_document)
+    contra = max(contra, safety_contra)
 
     def _numeric_conflict() -> bool:
         if not top_line:
@@ -72,6 +74,7 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
         contra,
         unknown_nums,
         forced_ns,
+        forbid_supported=forbid_sup,
     )
     if verdict == "Supported":
         reason = (
@@ -96,6 +99,8 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
             "number_match_score": round(num_score, 4),
             "contradiction_penalty": round(contra, 4),
             "unknown_numbers_in_answer": unknown_nums,
+            "forbid_supported": forbid_sup,
+            "safety_contra_boost": round(safety_contra, 4),
         },
     }
     return r

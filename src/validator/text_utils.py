@@ -46,6 +46,61 @@ def split_document_lines(document: str) -> list[str]:
 _INT_WORD_BOUNDARY = re.compile(r"\b\d+\b")
 _MONEY = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)", re.IGNORECASE)
 
+# Spelled-out numbers for grounding checks (word boundaries to avoid false positives).
+_WORD_TO_INT: dict[str, int] = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+}
+_ORDINAL_TO_INT: dict[str, int] = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+}
+
+
+def _digits_from_spelled_numbers(text: str) -> set[int]:
+    """Collect ints referred to by plain English number words (bounded vocabulary)."""
+    t = text.lower()
+    found: set[int] = set()
+    for word_map in (_WORD_TO_INT, _ORDINAL_TO_INT):
+        for w, n in word_map.items():
+            if re.search(rf"\b{re.escape(w)}\b", t):
+                found.add(n)
+    return found
+
 
 def extract_numeric_tokens(text: str) -> set[int]:
     """
@@ -66,6 +121,7 @@ def extract_numeric_tokens(text: str) -> set[int]:
             found.add(int(float(raw)))
         except ValueError:
             pass
+    found |= _digits_from_spelled_numbers(text)
     return found
 
 
