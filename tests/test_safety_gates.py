@@ -41,7 +41,17 @@ def test_h_p10_never_supported() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_incomplete_eligibility_is_partial_not_supported() -> None:
+    """Positive-only eligibility answer omits doc exclusivity → Partial (not Supported)."""
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time employees are eligible."
+    doc = "Full-time staff only; contractors are not eligible"
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
-    print("ok: H-N08 and H-P10 are not Supported")
+    test_incomplete_eligibility_is_partial_not_supported()
+    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")

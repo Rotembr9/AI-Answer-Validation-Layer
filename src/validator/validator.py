@@ -47,6 +47,8 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
     contra = sc.contradiction_signals(answer, top_line, source_document, question)
     forbid_sup, safety_contra = sc.supported_safety_flags(answer, source_document)
     contra = max(contra, safety_contra)
+    excl_pen = sc.incomplete_exclusivity_penalty(question, answer, source_document)
+    contra = max(contra, excl_pen)
 
     def _numeric_conflict() -> bool:
         if not top_line:
@@ -111,6 +113,7 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
             "unknown_numbers_in_answer": unknown_nums,
             "forbid_supported": forbid_sup,
             "safety_contra_boost": round(safety_contra, 4),
+            "exclusivity_omission_penalty": round(excl_pen, 4),
         },
     }
     return r

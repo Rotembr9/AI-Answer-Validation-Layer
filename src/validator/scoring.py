@@ -270,6 +270,118 @@ def contradiction_signals(
     return min(1.0, penalty)
 
 
+# --- Incomplete exclusivity (Supported → Partial when omission is material) ---
+
+# Questions where a paired allow/deny or “only” constraint is typically essential.
+_EXCLUSIVITY_QUESTION_RE = re.compile(
+    r"\b("
+    r"eligib|requirement|permission|qualif|"
+    r"who\s+(can|may|is|are)|"
+    r"\blimits?\b|restrict|"
+    r"allowed|"
+    r"stipend\s+for\s+whom|who\s+gets"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Source cues that the policy states exclusivity or explicit non-eligibility.
+def _source_has_exclusivity_marker(doc_low: str) -> bool:
+    if "not eligible" in doc_low:
+        return True
+    if "are not allowed" in doc_low:
+        return True
+    if re.search(r"\bonly\b", doc_low) and re.search(
+        r"\b(full[\s-]time|staff|employee|contractor|eligible|stipend)\b", doc_low
+    ):
+        return True
+    if re.search(r"\bcannot\b", doc_low) and re.search(
+        r"\b(eligible|receive|get|stipend|reimburs|remote\s+work)\b", doc_low
+    ):
+        return True
+    if "must not" in doc_low:
+        return True
+    if re.search(r"\bmust\b", doc_low) and "not eligible" in doc_low:
+        return True
+    if "required" in doc_low and "not eligible" in doc_low:
+        return True
+    return False
+
+
+def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
+    """Positive framing of who qualifies (the risky pattern is positive-only + omission)."""
+    if not re.search(
+        r"\b(eligible|qualif(y|ied)|entitled|allowed|may\s+receive)\b", ans_low
+    ):
+        if not re.search(r"\b(full[\s-]time|staff|employees?)\b", ans_low):
+            return False
+    # Strong standalone denial / NS-style answers — let other rules handle
+    if re.search(r"\b(no one|nobody|not\s+eligible|ineligible|cannot\s+receive)\b", ans_low):
+        if "eligible" not in ans_low and "staff" not in ans_low and "employee" not in ans_low:
+            return False
+    return True
+
+
+def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
+    """
+    True if the answer reflects exclusivity or the explicit exclusion from the doc
+    (not necessarily verbatim — enough that it is not a naive positive-only slice).
+    """
+    if re.search(r"\bonly\b", ans_low) and re.search(
+        r"\b(full[\s-]time|staff|employee)\b", ans_low
+    ):
+        return True
+    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
+        return True
+    # Named exclusion from policy text
+    if "contractors are not eligible" in doc_low or (
+        "contractor" in doc_low and "not eligible" in doc_low
+    ):
+        if "contractor" in ans_low and (
+            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
+        ):
+            return True
+        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
+            return True
+    if "part-time" in doc_low and "not" in doc_low:
+        if "part-time" in ans_low or "part time" in ans_low:
+            return True
+    if "are not allowed" in doc_low:
+        if "not allowed" in ans_low or "cannot" in ans_low:
+            return True
+    return False
+
+
+def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+    """
+    Eligibility-style questions + exclusivity-marked source + positive-only answer that
+    omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
+    so verdict is Partial (not Supported) when evidence still aligns.
+
+    Does not target contradictions (those stay with contradiction_signals / NS paths).
+    """
+    q = question.strip()
+    if not q or not answer.strip():
+        return 0.0
+
+    if not _EXCLUSIVITY_QUESTION_RE.search(q):
+        return 0.0
+
+    doc_low = document.lower().replace("-", " ")
+    if not _source_has_exclusivity_marker(doc_low):
+        return 0.0
+
+    ans_low = answer.lower().replace("-", " ")
+
+    if not _answer_affirms_in_group_eligibility(ans_low):
+        return 0.0
+
+    if _answer_covers_source_exclusivity(ans_low, doc_low):
+        return 0.0
+
+    # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band
+    return 0.56
+
+
 def combine_scores(
     ev_sim: float,
     kw: float,
