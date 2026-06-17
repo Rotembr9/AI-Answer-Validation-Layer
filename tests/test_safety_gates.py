@@ -50,8 +50,26 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_section_number_does_not_ground_wrong_laptop_deadline() -> None:
+    """The equipment section number ``6.`` is not a six-business-day return deadline."""
+    q = "When do I return my laptop after leaving the company?"
+    a = "Company laptops must be returned within 6 business days after employment ends."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_same_line_number_does_not_allow_wrong_remote_limit() -> None:
+    """The 4th-day approval rule must not support four no-approval remote days."""
+    q = "How many remote days are allowed each week without approval?"
+    a = "You can work remotely up to 4 days per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_section_number_does_not_ground_wrong_laptop_deadline()
+    test_same_line_number_does_not_allow_wrong_remote_limit()
+    print("ok: safety gate regression tests passed")

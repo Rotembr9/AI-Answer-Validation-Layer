@@ -54,7 +54,7 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
         if not top_line:
             return False
         an = tu.extract_numeric_tokens(answer)
-        en = tu.extract_numeric_tokens(top_line)
+        en = tu.extract_numeric_tokens(tu.strip_leading_list_marker(top_line))
         if not an or not en:
             return False
         overlap = set(tu.tokenize(answer)) & set(tu.tokenize(top_line))
