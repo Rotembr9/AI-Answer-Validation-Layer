@@ -11,6 +11,7 @@ from typing import Iterable
 _MIN_TOKEN_LEN = 2
 
 _TOKEN_RE = re.compile(r"[a-z0-9$%]+", re.IGNORECASE)
+_LEADING_LIST_MARKER_RE = re.compile(r"^\s*(?:\d+|[a-z])[\.)]\s+", re.IGNORECASE)
 
 
 def normalize_text(s: str) -> str:
@@ -39,6 +40,11 @@ def split_document_lines(document: str) -> list[str]:
         parts = re.split(r"(?<=[.!?])\s+", lines[0])
         lines = [p.strip() for p in parts if p.strip()]
     return lines if lines else [document.strip()]
+
+
+def strip_leading_list_marker(text: str) -> str:
+    """Remove a leading section/list marker such as ``"6. "`` from one evidence line."""
+    return _LEADING_LIST_MARKER_RE.sub("", text, count=1)
 
 
 # --- Numbers / amounts (for consistency checks) ---

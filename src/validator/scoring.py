@@ -191,6 +191,19 @@ def contradiction_signals(
         if "without" in joined_a and "approval" in joined_a and "not" not in joined_a:
             if "approval" in doc_low:
                 penalty = max(penalty, 0.86)
+    # Numeric phrasing of the same contradiction, e.g. "up to 4 days without approval".
+    if "remote" in a_norm and re.search(r"\b(approval|sign[\s-]?off)\b", a_norm):
+        no_approval_claim = re.search(
+            r"\b(without|no|need\s+no|needs\s+no|require[s]?\s+no)\b", a_norm
+        )
+        four_or_more_remote_days = re.search(
+            r"\b(4|four|5|five|6|six)\s+(remote\s+)?days?\b", a_norm
+        )
+        if no_approval_claim and four_or_more_remote_days:
+            if "up to 3 days per week without extra approval" in d_norm and (
+                "4th remote day" in d_norm or "fourth remote day" in d_norm
+            ):
+                penalty = max(penalty, 0.88)
     # Reimbursement above cap
     if "above" in joined_a and "500" in joined_a:
         if "not reimbursed" in doc_low and "not" not in joined_a:
