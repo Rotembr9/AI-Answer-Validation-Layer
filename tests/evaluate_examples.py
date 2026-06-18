@@ -20,6 +20,29 @@ from validator import load_examples_json, validate  # noqa: E402
 LABELS = ("Supported", "Not Supported", "Partial")
 
 
+def supported_precision(expected: list[str], predicted: list[str]) -> float:
+    """Precision for Supported verdicts: TP / all predicted Supported."""
+    predicted_supported = sum(1 for p in predicted if p == "Supported")
+    if not predicted_supported:
+        return 0.0
+    supported_tp = sum(
+        1 for e, p in zip(expected, predicted) if e == "Supported" and p == "Supported"
+    )
+    return supported_tp / predicted_supported
+
+
+def not_supported_recall(expected: list[str], predicted: list[str]) -> float:
+    ns_actual = sum(1 for e in expected if e == "Not Supported")
+    if not ns_actual:
+        return 0.0
+    ns_tp = sum(
+        1
+        for e, p in zip(expected, predicted)
+        if e == "Not Supported" and p == "Not Supported"
+    )
+    return ns_tp / ns_actual
+
+
 def confusion_matrix(
     expected: list[str], predicted: list[str]
 ) -> dict[tuple[str, str], int]:
@@ -65,9 +88,6 @@ def main() -> None:
     predicted: list[str] = []
     failed: list[str] = []
 
-    supported_tp = supported_fp = 0
-    ns_actual = ns_tp = 0
-
     for ex in examples:
         exp = ex["expected_label"]
         r = validate(ex["question"], ex["answer"], source_document)
@@ -77,22 +97,12 @@ def main() -> None:
         if pred != exp:
             failed.append(f"  {ex['id']}: expected {exp}, got {pred} (conf={r['confidence']})")
 
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            elif pred != "Supported":
-                supported_fp += 1
-        if exp == "Not Supported":
-            ns_actual += 1
-            if pred == "Not Supported":
-                ns_tp += 1
-
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
 
-    supported_precision = supported_tp / (supported_tp + supported_fp) if (supported_tp + supported_fp) else 0.0
-    ns_recall = ns_tp / ns_actual if ns_actual else 0.0
+    supported_prec = supported_precision(expected, predicted)
+    ns_recall = not_supported_recall(expected, predicted)
 
     unsafe_supported = sum(
         1 for e, p in zip(expected, predicted) if e != "Supported" and p == "Supported"
@@ -104,7 +114,7 @@ def main() -> None:
     print("Total examples:", n)
     print("Correct:", correct)
     print(f"Accuracy: {acc:.4f}")
-    print(f"Supported precision: {supported_precision:.4f}")
+    print(f"Supported precision: {supported_prec:.4f}")
     print(f"Not Supported recall: {ns_recall:.4f}")
     print(
         f"Non-Supported truth -> Supported (strict, should be 0): {ns_mistaken_as_supported}"

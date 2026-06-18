@@ -56,6 +56,29 @@ def _confusion_matrix(
     return m
 
 
+def _supported_precision(expected: list[str], predicted: list[str]) -> float:
+    """Precision for Supported verdicts: TP / all predicted Supported."""
+    predicted_supported = sum(1 for p in predicted if p == "Supported")
+    if not predicted_supported:
+        return 0.0
+    supported_tp = sum(
+        1 for e, p in zip(expected, predicted) if e == "Supported" and p == "Supported"
+    )
+    return supported_tp / predicted_supported
+
+
+def _not_supported_recall(expected: list[str], predicted: list[str]) -> float:
+    ns_actual = sum(1 for e in expected if e == "Not Supported")
+    if not ns_actual:
+        return 0.0
+    ns_tp = sum(
+        1
+        for e, p in zip(expected, predicted)
+        if e == "Not Supported" and p == "Not Supported"
+    )
+    return ns_tp / ns_actual
+
+
 def _format_matrix_md(cells: dict[tuple[str, str], int]) -> str:
     lines = [
         "| (gold → pred) | Supported | Not Supported | Partial |",
@@ -74,8 +97,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     source_document, examples = load_examples_json(path)
     expected: list[str] = []
     predicted: list[str] = []
-    supported_tp = supported_fp = 0
-    ns_actual = ns_tp = 0
     rows: list[dict] = []
     for ex in examples:
         exp = ex["expected_label"]
@@ -95,25 +116,12 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            else:
-                supported_fp += 1
-        if exp == "Not Supported":
-            ns_actual += 1
-            if pred == "Not Supported":
-                ns_tp += 1
 
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
-    sp = (
-        supported_tp / (supported_tp + supported_fp)
-        if (supported_tp + supported_fp)
-        else 0.0
-    )
-    ns_r = ns_tp / ns_actual if ns_actual else 0.0
+    sp = _supported_precision(expected, predicted)
+    ns_r = _not_supported_recall(expected, predicted)
     strict_fs = sum(
         1 for e, p in zip(expected, predicted) if e == "Not Supported" and p == "Supported"
     )
@@ -321,8 +329,8 @@ def _plain_english(core: DatasetResult, hold: DatasetResult) -> str:
     if core.supported_precision < 0.85 or hold.supported_precision < 0.85:
         parts.append(
             "**Supported precision** (when the model says *Supported*, how often that is correct) "
-            "is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. "
-            "That is conservative and safer than false *Supported*, but worth improving for UX."
+            "is moderate on one or both sets, meaning some non-Supported gold rows were marked "
+            "*Supported*. Review those rows before trusting the tool with customers."
         )
 
     if hold.ns_recall < 0.7:
