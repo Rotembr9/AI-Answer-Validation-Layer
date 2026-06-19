@@ -119,6 +119,98 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+_NUMBER_WORD_RE = (
+    r"\d+(?:st|nd|rd|th)?|"
+    r"zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+    r"eighteen|nineteen|twenty|thirty|forty|fifty|sixty|"
+    r"seventy|eighty|ninety|first|second|third|fourth|fifth|"
+    r"sixth|seventh|eighth|ninth|tenth"
+)
+
+_UNIT_PATTERNS: dict[str, re.Pattern[str]] = {
+    "business_hours": re.compile(
+        rf"\b(?P<num>{_NUMBER_WORD_RE})\s+(?:full\s+)?business\s+hours?\b",
+        re.IGNORECASE,
+    ),
+    "business_days": re.compile(
+        rf"\b(?P<num>{_NUMBER_WORD_RE})\s+(?:full\s+)?business\s+days?\b",
+        re.IGNORECASE,
+    ),
+    "days_per_week": re.compile(
+        rf"\b(?P<num>{_NUMBER_WORD_RE})\s+days?\s+per\s+week\b",
+        re.IGNORECASE,
+    ),
+}
+
+
+def _int_from_number_text(text: str) -> int | None:
+    nums = tu.extract_numeric_tokens(text)
+    if len(nums) != 1:
+        return None
+    return next(iter(nums))
+
+
+def _unit_number_claims(text: str) -> dict[str, list[tuple[int, int]]]:
+    claims: dict[str, list[tuple[int, int]]] = {}
+    for unit, pattern in _UNIT_PATTERNS.items():
+        unit_claims: list[tuple[int, int]] = []
+        for m in pattern.finditer(text):
+            value = _int_from_number_text(m.group("num"))
+            if value is not None:
+                unit_claims.append((value, m.start()))
+        claims[unit] = unit_claims
+    return claims
+
+
+def _is_negated_number_context(text: str, number_start: int) -> bool:
+    prefix = text[max(0, number_start - 24):number_start].lower()
+    return bool(re.search(r"\b(not|never)\s+$", prefix) or re.search(r"\b(rather than|instead of)\s+$", prefix))
+
+
+def numeric_unit_conflict(answer: str, top_evidence_line: str) -> float:
+    """
+    Strong guard for unit-qualified numbers.
+
+    The broad numeric grounding check intentionally looks at the full document, but
+    that lets section numbers (e.g. "5. Support response time") falsely ground wrong
+    claims like "5 business hours".  Compare unit-qualified values against the
+    matched evidence line so unrelated digits cannot make a numeric limit Supported.
+    """
+    a_norm = answer.lower().replace("-", " ")
+    e_norm = top_evidence_line.lower().replace("-", " ")
+    answer_claims = _unit_number_claims(a_norm)
+    evidence_claims = _unit_number_claims(e_norm)
+
+    for unit in ("business_hours", "business_days"):
+        evidence_values = {value for value, _start in evidence_claims.get(unit, [])}
+        if not evidence_values:
+            continue
+        for value, start in answer_claims.get(unit, []):
+            if value not in evidence_values and not _is_negated_number_context(a_norm, start):
+                return 0.88
+
+    no_approval_context = (
+        ("without" in a_norm and ("approval" in a_norm or "sign off" in a_norm))
+        or "no approval" in a_norm
+        or "requires no approval" in a_norm
+        or "need no approval" in a_norm
+        or "needs no approval" in a_norm
+        or "no sign off" in a_norm
+        or "need no sign off" in a_norm
+        or "needs no sign off" in a_norm
+    )
+    if no_approval_context and "remote" in a_norm:
+        evidence_values = {value for value, _start in evidence_claims.get("days_per_week", [])}
+        if evidence_values:
+            allowed_without_approval = max(evidence_values)
+            for value, start in answer_claims.get("days_per_week", []):
+                if value > allowed_without_approval and not _is_negated_number_context(a_norm, start):
+                    return 0.88
+
+    return 0.0
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
