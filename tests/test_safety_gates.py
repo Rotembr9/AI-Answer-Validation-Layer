@@ -50,8 +50,32 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_wrong_unit_number_from_section_header_is_not_supported() -> None:
+    q = "How fast should urgent support tickets get a first response?"
+    a = "Urgent Severity 1 tickets require a first response within 5 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_wrong_laptop_return_days_from_section_header_is_not_supported() -> None:
+    q = "When do I return my laptop after leaving the company?"
+    a = "Laptops must be returned within 6 business days after employment ends."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_too_many_remote_days_without_approval_is_not_supported() -> None:
+    q = "How many remote days are allowed each week without approval?"
+    a = "Employees may work remotely up to 4 days per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_wrong_unit_number_from_section_header_is_not_supported()
+    test_wrong_laptop_return_days_from_section_header_is_not_supported()
+    test_too_many_remote_days_without_approval_is_not_supported()
+    print("ok: safety gates block false Supported numeric and exclusivity cases")
