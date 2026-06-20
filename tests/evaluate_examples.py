@@ -15,6 +15,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+try:
+    from .evaluation_metrics import not_supported_recall, supported_precision
+except ImportError:  # pragma: no cover - used when run as a script
+    from evaluation_metrics import not_supported_recall, supported_precision
+
 from validator import load_examples_json, validate  # noqa: E402
 
 LABELS = ("Supported", "Not Supported", "Partial")
@@ -65,9 +70,6 @@ def main() -> None:
     predicted: list[str] = []
     failed: list[str] = []
 
-    supported_tp = supported_fp = 0
-    ns_actual = ns_tp = 0
-
     for ex in examples:
         exp = ex["expected_label"]
         r = validate(ex["question"], ex["answer"], source_document)
@@ -77,22 +79,12 @@ def main() -> None:
         if pred != exp:
             failed.append(f"  {ex['id']}: expected {exp}, got {pred} (conf={r['confidence']})")
 
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            elif pred != "Supported":
-                supported_fp += 1
-        if exp == "Not Supported":
-            ns_actual += 1
-            if pred == "Not Supported":
-                ns_tp += 1
-
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
 
-    supported_precision = supported_tp / (supported_tp + supported_fp) if (supported_tp + supported_fp) else 0.0
-    ns_recall = ns_tp / ns_actual if ns_actual else 0.0
+    sup_precision = supported_precision(expected, predicted)
+    ns_recall = not_supported_recall(expected, predicted)
 
     unsafe_supported = sum(
         1 for e, p in zip(expected, predicted) if e != "Supported" and p == "Supported"
@@ -104,7 +96,7 @@ def main() -> None:
     print("Total examples:", n)
     print("Correct:", correct)
     print(f"Accuracy: {acc:.4f}")
-    print(f"Supported precision: {supported_precision:.4f}")
+    print(f"Supported precision: {sup_precision:.4f}")
     print(f"Not Supported recall: {ns_recall:.4f}")
     print(
         f"Non-Supported truth -> Supported (strict, should be 0): {ns_mistaken_as_supported}"
