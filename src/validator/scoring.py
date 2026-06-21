@@ -37,6 +37,18 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _source_has_urgent_hour_sla(doc_low: str) -> bool:
+    """Return True when a source clause says urgent tickets are due in 4 business hours."""
+    for clause in re.split(r"[\n.;]", doc_low):
+        if "4 business hours" not in clause:
+            continue
+        if "severity 1" in clause:
+            return True
+        if re.search(r"\burgent\b", clause) and not re.search(r"\bnon\s+urgent\b", clause):
+            return True
+    return False
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -60,14 +72,14 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     )
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
+    if urgent_scope and _source_has_urgent_hour_sla(d):
         day_scale_response = (
             "business day" in a
             or "calendar day" in a
             or "full business day" in a
             or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
         )
-        if day_scale_response and "severity 1" in d:
+        if day_scale_response:
             extra = max(extra, 0.92)
             forbid = True
 
