@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from validator import load_examples_json, validate  # noqa: E402
+from validator import load_examples_json, validate, validate_with_debug  # noqa: E402
 
 
 def _doc() -> str:
@@ -50,8 +50,18 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_contractor_qualify_lie_with_incidental_no_is_not_supported() -> None:
+    """Incidental "No problem" must not count as covering contractor exclusion."""
+    q = "Who is eligible for the remote stipend?"
+    a = "No problem; full-time staff and contractors both qualify for the annual benefit."
+    r = validate_with_debug(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+    assert r["_debug"]["contradiction_penalty"] >= 0.80, r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_contractor_qualify_lie_with_incidental_no_is_not_supported()
+    print("ok: safety gates block urgent, omission, and contractor false-supported cases")

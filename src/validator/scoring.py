@@ -37,6 +37,24 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _mentions_contractor_exclusion(text: str) -> bool:
+    """Return True when text actually excludes contractors, not just any "no" near them."""
+    contractor_then_exclusion = re.search(
+        r"\bcontractors?\b.{0,60}\b("
+        r"not\s+eligible|ineligible|"
+        r"(?:do|does)\s+not\s+qualif(?:y|ies)|(?:don't|doesn't)\s+qualif(?:y|ies)|"
+        r"not\s+qualif(?:y|ied|ies)|"
+        r"cannot\s+(?:qualif(?:y|ies)|receive|get)|can't\s+(?:qualif(?:y|ies)|receive|get)|"
+        r"(?:do|does)\s+not\s+(?:receive|get)|(?:don't|doesn't)\s+(?:receive|get)|"
+        r"no\s+(?:stipend|reimbursement|benefit|equipment)"
+        r")\b",
+        text,
+    )
+    if contractor_then_exclusion:
+        return True
+    return bool(re.search(r"\bno\s+contractors?\b", text))
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -158,14 +176,14 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if "contractors are not eligible" in doc_low and not _mentions_contractor_exclusion(joined_a):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
             # Same-benefit claim in a longer mixed answer → Partial tier
             elif "same" in joined_a or "as full-time" in joined_a:
                 penalty = max(penalty, 0.62)
-            elif any(w in joined_a for w in ("eligible", "stipend", "reimbursement", "equipment")):
+            elif any(w in joined_a for w in ("eligible", "qualif", "stipend", "reimbursement", "equipment")):
                 penalty = max(penalty, 0.84)
     # Equipment return vs optional / no consequence (often mixed correct + wrong → keep penalty mid/high)
     if "laptop" in joined_a or ("return" in joined_a and "equipment" in doc_low):
@@ -336,9 +354,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _mentions_contractor_exclusion(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
