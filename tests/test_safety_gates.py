@@ -50,8 +50,45 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_wrong_sla_unit_numbers_are_not_supported() -> None:
+    """Wrong same-unit SLA values must not be hidden by section / Severity numbers."""
+    doc = _doc()
+    cases = [
+        (
+            "How fast should urgent support tickets get a first response?",
+            "Urgent Severity 1 tickets require a first response within 1 business hour.",
+        ),
+        (
+            "How fast should urgent support tickets get a first response?",
+            "Urgent Severity 1 tickets require a first response within 3 business hours.",
+        ),
+        (
+            "What is the first-response SLA for non-urgent tickets?",
+            "Non-urgent tickets receive a first response within 1 business day.",
+        ),
+    ]
+    for q, a in cases:
+        r = validate(q, a, doc)
+        assert r["verdict"] == "Not Supported", r
+
+
+def test_wrong_remote_limit_number_is_not_supported() -> None:
+    """A lower/incorrect cap is not Supported just because that number appears in the policy."""
+    r = validate(
+        "How many remote days are allowed each week without approval?",
+        "You can work remotely up to 1 day per week without extra approval.",
+        _doc(),
+    )
+    assert r["verdict"] == "Not Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_wrong_sla_unit_numbers_are_not_supported()
+    test_wrong_remote_limit_number_is_not_supported()
+    print(
+        "ok: H-N08/H-P10 and numeric-unit contradictions are not Supported; "
+        "exclusivity example is Partial"
+    )
