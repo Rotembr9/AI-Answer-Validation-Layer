@@ -25,6 +25,41 @@ import re
 
 from . import text_utils as tu
 
+_NUMBER_WORD_VALUES: dict[str, int] = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+_NUMBER_VALUE_RE = r"\d+|" + "|".join(_NUMBER_WORD_VALUES)
+
+
+def _number_value(raw: str) -> int | None:
+    raw = raw.lower()
+    if raw.isdigit():
+        return int(raw)
+    return _NUMBER_WORD_VALUES.get(raw)
+
+
+def _values_before_unit(text: str, unit_pattern: str) -> set[int]:
+    """Return number values directly attached to a unit phrase, e.g. "1 business hour"."""
+    values: set[int] = set()
+    for match in re.finditer(
+        rf"\b(?P<n>{_NUMBER_VALUE_RE})\s+(?:full\s+)?{unit_pattern}\b",
+        text,
+    ):
+        value = _number_value(match.group("n"))
+        if value is not None:
+            values.add(value)
+    return values
+
 
 # --- Thresholds (see module docstring) ---
 # Safety-first Supported: higher bar on confidence + evidence similarity.
@@ -216,6 +251,33 @@ def contradiction_signals(
         and "not specified" not in a_norm
     ):
         penalty = max(penalty, 0.88)
+
+    # Same-unit numeric mismatches can otherwise pass if the wrong number appears elsewhere
+    # in the evidence line (e.g. "Severity 1" masking "1 business hour" vs 4 hours).
+    urgent_in_scope = (
+        ("urgent" in q_norm or "severity" in q_norm or "urgent" in a_norm or "severity" in a_norm)
+        and "non urgent" not in q_norm
+        and "non urgent" not in a_norm
+    )
+    if urgent_in_scope and "4 business hours" in d_norm:
+        hour_values = _values_before_unit(a_norm, r"(?:business\s+)?hours?")
+        if hour_values and 4 not in hour_values:
+            penalty = max(penalty, 0.88)
+
+    non_urgent_in_scope = "non urgent" in q_norm or "non urgent" in a_norm
+    if non_urgent_in_scope and "2 business days" in d_norm:
+        day_values = _values_before_unit(a_norm, r"(?:business\s+|calendar\s+)?days?")
+        if day_values and 2 not in day_values:
+            penalty = max(penalty, 0.88)
+
+    remote_limit_scope = (
+        "remote" in q_norm
+        and any(cue in q_norm for cue in ("how many", "limit", "allowed", "without approval"))
+    ) or ("remote" in a_norm and "without" in a_norm and "approval" in a_norm)
+    if remote_limit_scope and ("up to 3" in d_norm or "3 days" in d_norm):
+        remote_day_values = _values_before_unit(a_norm, r"(?:remote\s+)?days?")
+        if remote_day_values and 3 not in remote_day_values:
+            penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
