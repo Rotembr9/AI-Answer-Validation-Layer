@@ -67,7 +67,7 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
             or "full business day" in a
             or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
         )
-        if day_scale_response and "severity 1" in d:
+        if day_scale_response and ("urgent" in d or "severity" in d):
             extra = max(extra, 0.92)
             forbid = True
 
@@ -220,7 +220,17 @@ def contradiction_signals(
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
     # Part-time stipend eligibility vs full-time-only policy (holdout H-N01)
-    if ("part-time" in q_norm or "part time" in q_norm or "part-time" in a_norm or "part time" in a_norm):
+    part_time_denied = re.search(
+        r"\bpart\s+time\b.{0,40}\b(not\s+eligible|ineligible|do\s+not\s+qualify|does\s+not\s+qualify|cannot\s+qualify|can't\s+qualify)\b",
+        a_norm,
+    ) or re.search(
+        r"\b(no|not)\b.{0,20}\bpart\s+time\b.{0,30}\b(eligible|qualif)",
+        a_norm,
+    )
+    if (
+        not part_time_denied
+        and ("part-time" in q_norm or "part time" in q_norm or "part-time" in a_norm or "part time" in a_norm)
+    ):
         if any(w in a_norm for w in ("qualify", "eligible", "same", "everyone")):
             if "full-time staff only" in doc_low or ("full-time" in doc_low and "only" in doc_low):
                 penalty = max(penalty, 0.88)
@@ -330,7 +340,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
+    if re.search(r"\bexcept\b", ans_low) or "does not apply" in ans_low or "doesn't apply" in ans_low:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
@@ -342,8 +352,14 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
+    if "part time" in doc_low and "not" in doc_low:
+        if re.search(
+            r"\bpart\s+time\b.{0,40}\b(not\s+eligible|ineligible|do\s+not\s+qualify|does\s+not\s+qualify|cannot\s+qualify|can't\s+qualify)\b",
+            ans_low,
+        ) or re.search(
+            r"\b(no|not)\b.{0,20}\bpart\s+time\b.{0,30}\b(eligible|qualif)",
+            ans_low,
+        ):
             return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
