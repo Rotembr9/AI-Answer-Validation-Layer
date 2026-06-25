@@ -37,6 +37,24 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _normalize_sla_text(text: str) -> str:
+    """Normalize SLA priority wording before urgent/non-urgent scope checks."""
+    normalized = text.lower().replace("-", " ")
+    normalized = re.sub(r"\bnonurgent\b", "non urgent", normalized)
+    return " ".join(normalized.split())
+
+
+def _has_true_urgent_scope(normalized_text: str) -> bool:
+    """Return True for urgent/severity mentions, excluding urgent inside non-urgent."""
+    tokens = tu.tokenize(normalized_text)
+    for i, token in enumerate(tokens):
+        if token == "severity":
+            return True
+        if token == "urgent" and not (i > 0 and tokens[i - 1] == "non"):
+            return True
+    return False
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -49,15 +67,12 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _normalize_sla_text(answer)
+    d = _normalize_sla_text(document)
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
+    urgent_scope = _has_true_urgent_scope(a)
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
     if urgent_scope and ("4 business hours" in d or "business hours" in d):
@@ -76,7 +91,7 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
+    if denial and _has_true_urgent_scope(a):
         if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
             extra = max(extra, 0.76)
             forbid = True
@@ -134,11 +149,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _normalize_sla_text(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    a_norm = _normalize_sla_text(joined_a)
+    d_norm = _normalize_sla_text(doc_low)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -201,8 +216,7 @@ def contradiction_signals(
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
     if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
+        _has_true_urgent_scope(a_norm)
         and "2 business day" in a_norm
         and "4 business hours" not in a_norm
     ):
