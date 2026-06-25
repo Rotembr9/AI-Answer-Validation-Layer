@@ -72,7 +72,7 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     extra = 0.0
     forbid = False
 
-    urgent_scope = _has_true_urgent_scope(a)
+    urgent_scope = _has_true_urgent_scope(a) and "non urgent" not in a
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
     if urgent_scope and ("4 business hours" in d or "business hours" in d):
@@ -217,6 +217,7 @@ def contradiction_signals(
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
     if (
         _has_true_urgent_scope(a_norm)
+        and "non urgent" not in a_norm
         and "2 business day" in a_norm
         and "4 business hours" not in a_norm
     ):
