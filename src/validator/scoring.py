@@ -59,15 +59,20 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         and "non urgent" not in a
     )
 
-    # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
+    urgent_hours_policy = bool(
+        re.search(r"\b(urgent|severity\s*1)\b.{0,120}\b\d+\s+business\s+hours\b", d)
+        or re.search(r"\b\d+\s+business\s+hours\b.{0,120}\b(urgent|severity\s*1)\b", d)
+    )
+
+    # Day-scale response window for urgent/Severity-1 vs document's hours-based SLA.
+    if urgent_scope and urgent_hours_policy:
         day_scale_response = (
             "business day" in a
             or "calendar day" in a
             or "full business day" in a
             or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
         )
-        if day_scale_response and "severity 1" in d:
+        if day_scale_response:
             extra = max(extra, 0.92)
             forbid = True
 
@@ -82,6 +87,33 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
             forbid = True
 
     return forbid, extra
+
+
+def _claims_no_approval_needed(a_norm: str) -> bool:
+    """Detect claims that an approval/sign-off requirement does not apply."""
+    approval = r"(?:extra\s+|written\s+|manager\s+)?approval"
+    signoff = r"(?:manager\s+)?sign\s*off"
+    no_approval_patterns = (
+        rf"\bwithout\s+{approval}\b",
+        rf"\bwithout\s+{signoff}\b",
+        rf"\b(?:no|any)\s+{approval}\b",
+        rf"\b(?:no|any)\s+{signoff}\b",
+        rf"\bneed\s+no\s+{signoff}\b",
+        rf"\b(?:does\s+not|doesn't|do\s+not|don't|not)\s+require\s+{approval}\b",
+        rf"\b(?:does\s+not|doesn't|do\s+not|don't|not)\s+require\s+{signoff}\b",
+        rf"\b{approval}\s+(?:is\s+|are\s+)?not\s+required\b",
+        rf"\b{signoff}\s+(?:is\s+|are\s+)?not\s+required\b",
+    )
+    if not any(re.search(p, a_norm) for p in no_approval_patterns):
+        return False
+
+    # Correct phrasing like "not allowed without approval" states an approval
+    # requirement, not an approval bypass.
+    requires_approval_patterns = (
+        rf"\b(?:not|never|cannot|can't|can\s+not)\s+(?:be\s+)?(?:allowed|permitted)\b.{0,50}\bwithout\s+{approval}\b",
+        rf"\b(?:not|never|cannot|can't|can\s+not)\s+(?:be\s+)?(?:allowed|permitted)\b.{0,50}\bwithout\s+{signoff}\b",
+    )
+    return not any(re.search(p, a_norm) for p in requires_approval_patterns)
 
 
 def keyword_match_score(
@@ -135,6 +167,7 @@ def contradiction_signals(
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
     q_norm = question.lower().replace("-", " ")
+    a_raw_norm = answer.lower().replace("-", " ")
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
@@ -188,9 +221,13 @@ def contradiction_signals(
             penalty = max(penalty, 0.58)
     # Extra remote day without approval (policy requires approval for 4th day)
     if "fourth" in joined_a or "4th" in joined_a:
-        if "without" in joined_a and "approval" in joined_a and "not" not in joined_a:
+        if _claims_no_approval_needed(a_raw_norm):
             if "approval" in doc_low:
                 penalty = max(penalty, 0.86)
+    if "remote" in a_norm and re.search(r"\b(?:up\s+to\s+)?(?:4|four)\s+(?:remote\s+)?days?\b", a_raw_norm):
+        if _claims_no_approval_needed(a_raw_norm):
+            if "up to 3" in d_norm or "3 days" in d_norm:
+                penalty = max(penalty, 0.90)
     # Reimbursement above cap
     if "above" in joined_a and "500" in joined_a:
         if "not reimbursed" in doc_low and "not" not in joined_a:
