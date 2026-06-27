@@ -351,7 +351,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    top_evidence_line: str = "",
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -367,7 +372,9 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
         return 0.0
 
     doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    evidence_low = top_evidence_line.lower().replace("-", " ")
+    source_scope = evidence_low or doc_low
+    if not _source_has_exclusivity_marker(source_scope):
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")

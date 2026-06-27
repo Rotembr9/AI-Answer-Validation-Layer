@@ -50,8 +50,17 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_unrelated_exclusivity_does_not_block_supported_remote_limit() -> None:
+    """An eligibility exclusion in another policy line must not downgrade remote-day support."""
+    q = "How many remote days are allowed each week without approval?"
+    a = "Employees may work remotely up to 3 days per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_unrelated_exclusivity_does_not_block_supported_remote_limit()
+    print("ok: safety gates and scoped exclusivity checks passed")
