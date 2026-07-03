@@ -37,6 +37,23 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+_HOUR_SLA_RE = re.compile(
+    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty\s+four)\s+business\s+hours?\b"
+)
+
+
+def _document_has_urgent_hour_sla(doc_low: str) -> bool:
+    """True when an urgent/severity/P1 policy line states a business-hour response window."""
+    for line in tu.split_document_lines(doc_low):
+        if not _HOUR_SLA_RE.search(line):
+            continue
+        if re.search(r"(?<!non )\burgent\b", line) or re.search(
+            r"\b(severity\s*1|priority\s*1|p1)\b", line
+        ):
+            return True
+    return False
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -60,14 +77,14 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     )
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
+    if urgent_scope and _document_has_urgent_hour_sla(d):
         day_scale_response = (
             "business day" in a
             or "calendar day" in a
             or "full business day" in a
             or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
         )
-        if day_scale_response and "severity 1" in d:
+        if day_scale_response:
             extra = max(extra, 0.92)
             forbid = True
 
