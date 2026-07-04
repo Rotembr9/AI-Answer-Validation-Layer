@@ -351,10 +351,15 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    evidence_line: str | None = None,
+) -> float:
     """
-    Eligibility-style questions + exclusivity-marked source + positive-only answer that
-    omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
+    Eligibility-style questions + exclusivity-marked evidence + positive-only answer that
+    omits the matched source's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
     so verdict is Partial (not Supported) when evidence still aligns.
 
     Does not target contradictions (those stay with contradiction_signals / NS paths).
@@ -366,8 +371,9 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    scope = evidence_line if evidence_line else document
+    scope_low = scope.lower().replace("-", " ")
+    if not _source_has_exclusivity_marker(scope_low):
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
@@ -375,7 +381,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
 
-    if _answer_covers_source_exclusivity(ans_low, doc_low):
+    if _answer_covers_source_exclusivity(ans_low, scope_low):
         return 0.0
 
     # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band
