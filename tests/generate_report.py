@@ -25,6 +25,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from validator import load_examples_json, validate  # noqa: E402
 
+try:
+    from .metric_helpers import supported_prediction_precision
+except ImportError:  # pragma: no cover - direct script execution
+    from metric_helpers import supported_prediction_precision  # type: ignore
+
 LABELS = ("Supported", "Not Supported", "Partial")
 
 SNAPSHOT_PATH = ROOT / "reports" / "last_run_metrics.json"
@@ -74,7 +79,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     source_document, examples = load_examples_json(path)
     expected: list[str] = []
     predicted: list[str] = []
-    supported_tp = supported_fp = 0
     ns_actual = ns_tp = 0
     rows: list[dict] = []
     for ex in examples:
@@ -95,11 +99,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            else:
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -108,11 +107,7 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
-    sp = (
-        supported_tp / (supported_tp + supported_fp)
-        if (supported_tp + supported_fp)
-        else 0.0
-    )
+    sp = supported_prediction_precision(expected, predicted)
     ns_r = ns_tp / ns_actual if ns_actual else 0.0
     strict_fs = sum(
         1 for e, p in zip(expected, predicted) if e == "Not Supported" and p == "Supported"
@@ -321,8 +316,8 @@ def _plain_english(core: DatasetResult, hold: DatasetResult) -> str:
     if core.supported_precision < 0.85 or hold.supported_precision < 0.85:
         parts.append(
             "**Supported precision** (when the model says *Supported*, how often that is correct) "
-            "is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. "
-            "That is conservative and safer than false *Supported*, but worth improving for UX."
+            "is moderate on one or both sets, which means some non-Supported rows may be receiving "
+            "the riskiest label and need review before trusting the report."
         )
 
     if hold.ns_recall < 0.7:
