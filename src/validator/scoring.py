@@ -37,6 +37,17 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _normalize_policy_terms(text: str) -> str:
+    """Normalize policy terms that appear in common hyphenated/unhyphenated forms."""
+    text = text.lower().replace("-", " ")
+    return re.sub(r"\bnon\s*urgent\b", "non urgent", text)
+
+
+def _mentions_urgent_scope(norm_text: str) -> bool:
+    """True for urgent/Severity-1 claims, excluding the word urgent inside non-urgent."""
+    return "severity" in norm_text or "urgent" in norm_text.replace("non urgent", "")
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -49,13 +60,13 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _normalize_policy_terms(answer)
+    d = _normalize_policy_terms(document)
     extra = 0.0
     forbid = False
 
     urgent_scope = (
-        ("urgent" in a or "severity" in a)
+        _mentions_urgent_scope(a)
         and "non urgent" not in a
     )
 
@@ -76,8 +87,14 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+    if denial and _mentions_urgent_scope(a):
+        if (
+            "window" in a
+            or "timeframe" in a
+            or "hours" in a
+            or "sla" in a
+            or "response" in a
+        ) and "4 business hours" in d:
             extra = max(extra, 0.76)
             forbid = True
 
@@ -134,11 +151,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _normalize_policy_terms(question)
     doc_low = document.lower()
-    # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    # Normalize SLA terms for substring rules after tokenization.
+    a_norm = _normalize_policy_terms(joined_a)
+    d_norm = _normalize_policy_terms(document)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
