@@ -20,6 +20,18 @@ from validator import load_examples_json, validate  # noqa: E402
 LABELS = ("Supported", "Not Supported", "Partial")
 
 
+def _supported_precision(expected: list[str], predicted: list[str]) -> float:
+    """Precision for predictions labeled Supported: TP / (TP + false Supported)."""
+    supported_tp = sum(
+        1 for e, p in zip(expected, predicted) if e == "Supported" and p == "Supported"
+    )
+    supported_fp = sum(
+        1 for e, p in zip(expected, predicted) if e != "Supported" and p == "Supported"
+    )
+    denom = supported_tp + supported_fp
+    return supported_tp / denom if denom else 0.0
+
+
 def confusion_matrix(
     expected: list[str], predicted: list[str]
 ) -> dict[tuple[str, str], int]:
@@ -65,7 +77,6 @@ def main() -> None:
     predicted: list[str] = []
     failed: list[str] = []
 
-    supported_tp = supported_fp = 0
     ns_actual = ns_tp = 0
 
     for ex in examples:
@@ -77,11 +88,6 @@ def main() -> None:
         if pred != exp:
             failed.append(f"  {ex['id']}: expected {exp}, got {pred} (conf={r['confidence']})")
 
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            elif pred != "Supported":
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -91,7 +97,7 @@ def main() -> None:
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
 
-    supported_precision = supported_tp / (supported_tp + supported_fp) if (supported_tp + supported_fp) else 0.0
+    supported_precision = _supported_precision(expected, predicted)
     ns_recall = ns_tp / ns_actual if ns_actual else 0.0
 
     unsafe_supported = sum(
