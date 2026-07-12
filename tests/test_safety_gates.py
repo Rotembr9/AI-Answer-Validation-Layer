@@ -50,8 +50,20 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_remote_day_small_number_mismatch_is_not_supported() -> None:
+    """Do not treat unrelated document-level 1s as grounding for a wrong 1-day cap."""
+    q = "What is the remote work policy?"
+    for a in (
+        "Employees may work remotely up to one day per week without extra approval.",
+        "Employees may work remotely up to 1 day per week without extra approval.",
+    ):
+        r = validate(q, a, _doc())
+        assert r["verdict"] == "Not Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_remote_day_small_number_mismatch_is_not_supported()
+    print("ok: safety gates and small-number numeric conflicts pass")

@@ -61,8 +61,7 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
         if len(overlap) < 2:
             return False
         if an != en and an.isdisjoint(en):
-            if max(an) >= 2 and max(en) >= 2:
-                return True
+            return True
         return False
 
     forced_ns = _numeric_conflict() and best_cos > 0.2
