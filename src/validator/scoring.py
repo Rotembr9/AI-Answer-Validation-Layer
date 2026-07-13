@@ -54,18 +54,12 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
+    urgent_clauses = [clause for clause in _sla_clauses(a) if _is_urgent_sla_clause(clause)]
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
+    if urgent_clauses and ("4 business hours" in d or "business hours" in d):
+        day_scale_response = any(
+            _has_day_scale_response_window(clause) for clause in urgent_clauses
         )
         if day_scale_response and "severity 1" in d:
             extra = max(extra, 0.92)
@@ -82,6 +76,37 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
             forbid = True
 
     return forbid, extra
+
+
+def _sla_clauses(text: str) -> list[str]:
+    """Split SLA answers into small spans so urgent and non-urgent windows do not cross-match."""
+    return [
+        clause.strip()
+        for clause in re.split(r"[.;,\n]+|\s+\b(?:and|but)\b\s+", text)
+        if clause.strip()
+    ]
+
+
+def _is_urgent_sla_clause(clause: str) -> bool:
+    return "severity" in clause or re.search(r"(?<!non\s)\burgent\b", clause) is not None
+
+
+def _is_non_urgent_sla_clause(clause: str) -> bool:
+    return "non urgent" in clause
+
+
+def _has_day_scale_response_window(clause: str) -> bool:
+    return (
+        "business day" in clause
+        or "calendar day" in clause
+        or "full business day" in clause
+        or re.search(
+            r"\b(one|two|three|four|five|six|seven|eight|nine|ten|1|2|3|4|5|6|7|8|9|10)\s+"
+            r"(full\s+)?(calendar\s+)?(business\s+)?days?\b",
+            clause,
+        )
+        is not None
+    )
 
 
 def keyword_match_score(
@@ -200,21 +225,22 @@ def contradiction_signals(
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
+    answer_clauses = _sla_clauses(answer.lower().replace("-", " "))
+    if any(
+        _is_urgent_sla_clause(clause)
+        and "2 business day" in clause
+        and "4 business hours" not in clause
+        for clause in answer_clauses
     ):
         if "4 business hours" in d_norm:
             penalty = max(penalty, 0.88)
     # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
+    if any(
+        _is_non_urgent_sla_clause(clause)
+        and "4 business hours" in clause
+        and "not specified" not in clause
+        for clause in answer_clauses
+    ) and "2 business days" in d_norm:
         penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
