@@ -225,7 +225,7 @@ def contradiction_signals(
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    answer_clauses = _sla_clauses(a_norm)
+    answer_clauses = _sla_clauses(answer.lower().replace("-", " "))
     if any(
         _is_urgent_sla_clause(clause)
         and "2 business day" in clause
