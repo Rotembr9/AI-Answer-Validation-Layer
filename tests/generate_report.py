@@ -56,6 +56,18 @@ def _confusion_matrix(
     return m
 
 
+def _supported_precision(expected: list[str], predicted: list[str]) -> float:
+    """Precision for predicted Supported verdicts: TP / (TP + false Supported)."""
+    supported_tp = sum(
+        1 for e, p in zip(expected, predicted) if e == "Supported" and p == "Supported"
+    )
+    supported_fp = sum(
+        1 for e, p in zip(expected, predicted) if e != "Supported" and p == "Supported"
+    )
+    denom = supported_tp + supported_fp
+    return supported_tp / denom if denom else 0.0
+
+
 def _format_matrix_md(cells: dict[tuple[str, str], int]) -> str:
     lines = [
         "| (gold → pred) | Supported | Not Supported | Partial |",
@@ -74,7 +86,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     source_document, examples = load_examples_json(path)
     expected: list[str] = []
     predicted: list[str] = []
-    supported_tp = supported_fp = 0
     ns_actual = ns_tp = 0
     rows: list[dict] = []
     for ex in examples:
@@ -95,11 +106,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            else:
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -108,11 +114,7 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
-    sp = (
-        supported_tp / (supported_tp + supported_fp)
-        if (supported_tp + supported_fp)
-        else 0.0
-    )
+    sp = _supported_precision(expected, predicted)
     ns_r = ns_tp / ns_actual if ns_actual else 0.0
     strict_fs = sum(
         1 for e, p in zip(expected, predicted) if e == "Not Supported" and p == "Supported"
@@ -321,8 +323,8 @@ def _plain_english(core: DatasetResult, hold: DatasetResult) -> str:
     if core.supported_precision < 0.85 or hold.supported_precision < 0.85:
         parts.append(
             "**Supported precision** (when the model says *Supported*, how often that is correct) "
-            "is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. "
-            "That is conservative and safer than false *Supported*, but worth improving for UX."
+            "is low on one or both sets — some non-Supported rows are being labeled *Supported*. "
+            "Review the Safety section before relying on these results."
         )
 
     if hold.ns_recall < 0.7:
