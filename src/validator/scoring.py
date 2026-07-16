@@ -242,7 +242,7 @@ def contradiction_signals(
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups. Scope checks to claim spans so a correct
     # non-urgent clause does not hide a wrong urgent clause, or vice versa.
-    urgent_spans = _urgent_claim_spans(a_norm)
+    urgent_spans = _urgent_claim_spans(answer)
     if any(
         _has_day_scale_response(span) and "4 business hours" not in span
         for span in urgent_spans
@@ -251,7 +251,7 @@ def contradiction_signals(
             penalty = max(penalty, 0.88)
     # Non-urgent tickets must not use the urgent SLA window (skip if the specific
     # non-urgent span hedges, e.g. "not specified").
-    non_urgent_spans = _non_urgent_claim_spans(a_norm)
+    non_urgent_spans = _non_urgent_claim_spans(answer)
     if any(
         "4 business hours" in span and "not specified" not in span
         for span in non_urgent_spans
