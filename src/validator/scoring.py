@@ -36,6 +36,33 @@ MAX_CONTRA_FOR_SUPPORTED = 0.34
 EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
+_REMOTE_DAY_CAP_RE = re.compile(
+    r"\b(?P<n>\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:remote\s+)?days?\s+(?:per|each)\s+week\b",
+    re.IGNORECASE,
+)
+
+_SMALL_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def _remote_day_cap_numbers(text: str) -> set[int]:
+    nums: set[int] = set()
+    for m in _REMOTE_DAY_CAP_RE.finditer(text):
+        raw = m.group("n").lower()
+        nums.add(int(raw) if raw.isdigit() else _SMALL_NUMBER_WORDS[raw])
+    return nums
+
 
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
@@ -151,6 +178,21 @@ def contradiction_signals(
         if "may work remotely" in d_norm or "may" in joined_e or "up to" in joined_e:
             penalty = max(penalty, 0.95)
 
+    # Remote work cap: do not let unrelated document numbers (e.g. section numbers or dates)
+    # make "one day per week" look grounded when the policy cap is 3 days per week.
+    qa_norm = f"{q_norm} {a_norm}"
+    if ("remote" in qa_norm or "remotely" in qa_norm) and re.search(
+        r"\b(without|no)\s+(?:any\s+|extra\s+)?approval\b",
+        qa_norm,
+    ):
+        claimed_remote_caps = _remote_day_cap_numbers(a_norm)
+        if claimed_remote_caps and re.search(
+            r"\b(?:up to\s+)?(?:3|three)\s+days?\s+(?:per|each)\s+week\b",
+            d_norm,
+        ):
+            if any(n != 3 for n in claimed_remote_caps):
+                penalty = max(penalty, 0.90)
+
     # Contractor eligibility: explicit mismatch patterns
     if "contractor" in joined_a and "eligible" in joined_a and "full-time" in joined_e:
         if "not" not in joined_a and "only" in joined_e:
@@ -158,7 +200,7 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if "contractors are not eligible" in doc_low and not _answer_covers_source_exclusivity(a_norm, d_norm):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -258,7 +300,7 @@ def contradiction_signals(
     # Short standalone contractor same-benefit claim (holdout H-N07; long mixed answers stay lower)
     if "contractor" in joined_a and "same" in joined_a:
         if len(joined_a) < 95 and "contractors are not eligible" in doc_low:
-            if "not eligible" not in joined_a:
+            if not _answer_covers_source_exclusivity(a_norm, d_norm):
                 penalty = max(penalty, 0.86)
 
     # Vague extra-remote approval wording vs explicit written / before-week rule (H-P08-style)
@@ -337,7 +379,11 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         "contractor" in doc_low and "not eligible" in doc_low
     ):
         if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
+            "not" in ans_low
+            or "cannot" in ans_low
+            or "can't" in ans_low
+            or "ineligible" in ans_low
+            or "no" in ans_low[:60]
         ):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
@@ -351,7 +397,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    top_evidence_line: str = "",
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -369,6 +420,11 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     doc_low = document.lower().replace("-", " ")
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
+
+    if top_evidence_line:
+        evidence_low = top_evidence_line.lower().replace("-", " ")
+        if not _source_has_exclusivity_marker(evidence_low):
+            return 0.0
 
     ans_low = answer.lower().replace("-", " ")
 

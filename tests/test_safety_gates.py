@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from validator import load_examples_json, validate  # noqa: E402
+from validator import load_examples_json, validate, validate_with_debug  # noqa: E402
 
 
 def _doc() -> str:
@@ -50,8 +50,31 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_remote_one_day_cap_is_not_supported() -> None:
+    q = "How many remote days are allowed each week without approval?"
+    a = "You may work remotely one day per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_contractor_exclusion_paraphrase_is_not_rejected() -> None:
+    q, a = _load_h("H-P07")
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Partial", r
+
+
+def test_unrelated_expense_allowed_question_has_no_exclusivity_penalty() -> None:
+    q = "Are employees allowed to submit expense reports for purchases?"
+    a = "Employees must submit expense reports by the 15th day of the month following the purchase."
+    r = validate_with_debug(q, a, _doc())
+    assert r["_debug"]["exclusivity_omission_penalty"] == 0.0, r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_remote_one_day_cap_is_not_supported()
+    test_contractor_exclusion_paraphrase_is_not_rejected()
+    test_unrelated_expense_allowed_question_has_no_exclusivity_penalty()
+    print("ok: safety-gate regressions passed")
