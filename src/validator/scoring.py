@@ -49,27 +49,23 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _normalize_policy_terms(answer)
+    d = _normalize_policy_terms(document)
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
+    answer_spans = [_normalize_policy_terms(span) for span in _claim_spans(answer)]
+    urgent_sla_in_doc = "4 business hours" in d and (
+        "urgent" in d or "severity 1" in d or "priority 1" in d or "p1" in d
     )
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
-            extra = max(extra, 0.92)
-            forbid = True
+    if urgent_sla_in_doc and any(
+        _is_urgent_sla_scope(span) and _has_day_scale_response(span)
+        for span in answer_spans
+    ):
+        extra = max(extra, 0.92)
+        forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial = re.search(
@@ -82,6 +78,41 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
             forbid = True
 
     return forbid, extra
+
+
+def _normalize_policy_terms(text: str) -> str:
+    """Normalize policy terms that appear both hyphenated and closed-up in answers."""
+    normalized = text.lower().replace("-", " ")
+    normalized = re.sub(r"\bnon\s*urgent\b", "non urgent", normalized)
+    return normalized
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Split answer text into local claim spans for SLA checks."""
+    spans = re.split(
+        r"[;\n.]+|\b(?:but|while)\b|\band\s+(?=(?:urgent|severity|priority|p1|non[-\s]*urgent)\b)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return [span.strip() for span in spans if span and span.strip()]
+
+
+def _is_urgent_sla_scope(text: str) -> bool:
+    return (
+        "urgent" in text or "severity" in text or "priority 1" in text or "p1" in text
+    ) and "non urgent" not in text
+
+
+def _has_day_scale_response(text: str) -> bool:
+    return bool(
+        "business day" in text
+        or "calendar day" in text
+        or "full business day" in text
+        or re.search(
+            r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day",
+            text,
+        )
+    )
 
 
 def keyword_match_score(
@@ -134,11 +165,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _normalize_policy_terms(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    a_norm = _normalize_policy_terms(joined_a)
+    d_norm = _normalize_policy_terms(document)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -199,23 +230,26 @@ def contradiction_signals(
     if "last day" in joined_a and "month" in joined_a:
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
-    # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
-    ):
-        if "4 business hours" in d_norm:
+    # Urgent vs non-urgent SLA mix-ups; evaluate local spans so a correct non-urgent
+    # clause does not hide an urgent contradiction (or vice versa).
+    answer_spans = [_normalize_policy_terms(span) for span in _claim_spans(answer)]
+    if "4 business hours" in d_norm:
+        if any(
+            _is_urgent_sla_scope(span)
+            and "2 business day" in span
+            and "4 business hours" not in span
+            for span in answer_spans
+        ):
             penalty = max(penalty, 0.88)
     # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
-        penalty = max(penalty, 0.88)
+    if "2 business days" in d_norm:
+        if any(
+            "non urgent" in span
+            and "4 business hours" in span
+            and "not specified" not in span
+            for span in answer_spans
+        ):
+            penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
@@ -235,6 +269,20 @@ def contradiction_signals(
     if re.search(r"\bsix\b", a_norm) or re.search(r"\b6\b", a_norm):
         if "remote" in a_norm and ("day" in a_norm or "days" in a_norm):
             if "up to 3" in d_norm or "3 days" in d_norm:
+                penalty = max(penalty, 0.90)
+
+    # Remote no-approval cap must match the policy's "up to 3 days"; unrelated
+    # section/effective-date numbers in the document should not ground a wrong cap.
+    if "remote" in a_norm and "day" in a_norm and ("up to 3" in d_norm or "3 days" in d_norm):
+        no_approval_cap = re.search(
+            r"\b(?:work\s+remotely\s+)?(?:up\s+to|at\s+most|maximum\s+of|max|no\s+more\s+than|only)?\s*"
+            r"(?P<num>zero|one|two|three|four|five|six|\d+)\s+(?:remote\s+)?days?\s+per\s+week\b"
+            r".{0,80}\b(without|with\s+no|need\s+no|needs\s+no|do\s+not\s+need|don't\s+need|require\s+no|requires\s+no|no\s+sign\s+off)",
+            a_norm,
+        )
+        if no_approval_cap:
+            nums = tu.extract_numeric_tokens(no_approval_cap.group("num"))
+            if nums and 3 not in nums:
                 penalty = max(penalty, 0.90)
 
     # Question cites amount above cap; answer implies full reimbursement (holdout H-N04)
