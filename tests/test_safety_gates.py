@@ -50,8 +50,44 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_closed_nonurgent_wrong_hours_never_supported() -> None:
+    q = "What is the first-response SLA for non-urgent tickets?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_priority_one_day_scale_sla_never_supported() -> None:
+    q = "What is the SLA for Priority 1 tickets?"
+    a = "Priority 1 tickets get a first response within 2 business days."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_urgent_day_scale_without_severity_phrase_never_supported() -> None:
+    q = "What is the urgent SLA?"
+    a = "Urgent tickets get a first response within one full business day."
+    doc = (
+        "Urgent support tickets receive a first response within 4 business hours. "
+        "Non-urgent tickets receive a first response within 2 business days."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_remote_one_day_cap_never_supported() -> None:
+    q = "How many remote days are allowed each week without approval?"
+    a = "You can work remotely up to one day per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_closed_nonurgent_wrong_hours_never_supported()
+    test_priority_one_day_scale_sla_never_supported()
+    test_urgent_day_scale_without_severity_phrase_never_supported()
+    test_remote_one_day_cap_never_supported()
+    print("ok: safety gates reject known high-risk Supported false positives")
