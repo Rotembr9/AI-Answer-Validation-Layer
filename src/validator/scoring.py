@@ -37,7 +37,105 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
-def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
+def _policy_norm(text: str) -> str:
+    """Normalize policy terms that are significant for safety gates."""
+    norm = text.lower().replace("-", " ")
+    norm = re.sub(r"\bnonurgent\b", "non urgent", norm)
+    return " ".join(norm.split())
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Split mixed answers so urgent and non-urgent SLA claims are checked separately."""
+    spans = [
+        _policy_norm(part)
+        for part in re.split(r"[.;\n]+", text)
+        if part.strip()
+    ]
+    return spans or [_policy_norm(text)]
+
+
+_NUMBER_WORDS = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def _number_value(raw: str) -> int | None:
+    if raw.isdigit():
+        return int(raw)
+    return _NUMBER_WORDS.get(raw)
+
+
+def _business_day_counts(text: str) -> list[int]:
+    counts: list[int] = []
+    for m in re.finditer(
+        r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:full\s+)?business\s+days?\b",
+        text,
+    ):
+        val = _number_value(m.group(1))
+        if val is not None:
+            counts.append(val)
+    return counts
+
+
+def _day_per_week_counts(text: str) -> list[int]:
+    counts: list[int] = []
+    for m in re.finditer(
+        r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days?\s+per\s+week\b",
+        text,
+    ):
+        val = _number_value(m.group(1))
+        if val is not None:
+            counts.append(val)
+    return counts
+
+
+def _urgent_term(text: str) -> bool:
+    return (
+        "urgent" in text and "non urgent" not in text
+    ) or "severity 1" in text or "priority 1" in text or re.search(r"\bp1\b", text) is not None
+
+
+def _source_has_urgent_hour_sla(doc: str) -> bool:
+    urgent = r"(urgent|severity\s+1|priority\s+1|\bp1\b)"
+    return bool(
+        re.search(rf"\b{urgent}\b.{{0,100}}\b4 business hours\b", doc)
+        or re.search(rf"\b4 business hours\b.{{0,100}}\b{urgent}\b", doc)
+    )
+
+
+def _source_nonurgent_business_day_count(doc: str) -> int | None:
+    for m in re.finditer(
+        r"\bnon urgent\b.{0,100}?\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+business\s+days?\b",
+        doc,
+    ):
+        val = _number_value(m.group(1))
+        if val is not None:
+            return val
+    return None
+
+
+def _source_remote_no_approval_cap(doc: str) -> int | None:
+    for m in re.finditer(
+        r"\bremote\b.{0,100}?\bup to\s+(zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days?\s+per\s+week\b.{0,100}?\bwithout\b.{0,30}?\bapproval\b",
+        doc,
+    ):
+        val = _number_value(m.group(1))
+        if val is not None:
+            return val
+    return None
+
+
+def supported_safety_flags(answer: str, document: str, question: str = "") -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
 
@@ -49,25 +147,26 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _policy_norm(answer)
+    q = _policy_norm(question)
+    d = _policy_norm(document)
+    spans = _claim_spans(answer)
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
+    source_urgent_hour_sla = _source_has_urgent_hour_sla(d)
+    nonurgent_days = _source_nonurgent_business_day_count(d)
+    remote_cap = _source_remote_no_approval_cap(d)
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
+    if source_urgent_hour_sla:
         day_scale_response = (
             "business day" in a
             or "calendar day" in a
             or "full business day" in a
             or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
         )
-        if day_scale_response and "severity 1" in d:
+        if day_scale_response and any(_urgent_term(span) for span in spans):
             extra = max(extra, 0.92)
             forbid = True
 
@@ -76,10 +175,48 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+    if denial and any(_urgent_term(span) for span in spans):
+        if any(w in a for w in ("window", "timeframe", "hours", "sla", "time", "response")) and source_urgent_hour_sla:
             extra = max(extra, 0.76)
             forbid = True
+
+    # Non-urgent SLA claims must be compared against the non-urgent clause, not the
+    # unrelated urgent-hours numbers in the same source line.
+    if nonurgent_days is not None:
+        for span in spans:
+            nonurgent_scope = "non urgent" in span or "non urgent" in q
+            if not nonurgent_scope:
+                continue
+            if "not specified" in span:
+                continue
+            if "4 business hours" in span:
+                extra = max(extra, 0.88)
+                forbid = True
+            for claimed in _business_day_counts(span):
+                if claimed != nonurgent_days:
+                    extra = max(extra, 0.88)
+                    forbid = True
+
+    # Remote no-approval caps are numeric limits; do not let unrelated "1" or "4th"
+    # tokens in the document make a wrong weekly cap look grounded.
+    if remote_cap is not None:
+        approval_free = any(
+            cue in a
+            for cue in (
+                "without extra approval",
+                "without approval",
+                "no approval",
+                "need no",
+                "needs no",
+                "no sign off",
+                "no signoff",
+            )
+        )
+        if approval_free and ("remote" in a or "remote" in q):
+            for claimed in _day_per_week_counts(a):
+                if claimed != remote_cap:
+                    extra = max(extra, 0.90)
+                    forbid = True
 
     return forbid, extra
 
