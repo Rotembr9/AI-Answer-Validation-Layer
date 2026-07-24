@@ -99,6 +99,18 @@ def _day_per_week_counts(text: str) -> list[int]:
     return counts
 
 
+def _day_scale_response(text: str) -> bool:
+    return bool(
+        "business day" in text
+        or "calendar day" in text
+        or "full business day" in text
+        or re.search(
+            r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day",
+            text,
+        )
+    )
+
+
 def _urgent_term(text: str) -> bool:
     return (
         "urgent" in text and "non urgent" not in text
@@ -160,31 +172,30 @@ def supported_safety_flags(answer: str, document: str, question: str = "") -> tu
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
     if source_urgent_hour_sla:
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and any(_urgent_term(span) for span in spans):
+        if any(_urgent_term(span) and _day_scale_response(span) for span in spans):
             extra = max(extra, 0.92)
             forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
-    denial = re.search(
-        r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
-        a,
+    denial_re = re.compile(
+        r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)"
     )
-    if denial and any(_urgent_term(span) for span in spans):
-        if any(w in a for w in ("window", "timeframe", "hours", "sla", "time", "response")) and source_urgent_hour_sla:
-            extra = max(extra, 0.76)
-            forbid = True
+    if any(
+        denial_re.search(span)
+        and _urgent_term(span)
+        and any(w in span for w in ("window", "timeframe", "hours", "sla", "time", "response"))
+        for span in spans
+    ) and source_urgent_hour_sla:
+        extra = max(extra, 0.76)
+        forbid = True
 
     # Non-urgent SLA claims must be compared against the non-urgent clause, not the
     # unrelated urgent-hours numbers in the same source line.
     if nonurgent_days is not None:
         for span in spans:
-            nonurgent_scope = "non urgent" in span or "non urgent" in q
+            nonurgent_scope = "non urgent" in span or (
+                "non urgent" in q and not _urgent_term(span)
+            )
             if not nonurgent_scope:
                 continue
             if "not specified" in span:
