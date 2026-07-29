@@ -50,8 +50,48 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_nonurgent_sla_must_not_use_urgent_hours() -> None:
+    q = "How quickly must non-urgent tickets get a first reply?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_nonurgent_sla_must_match_business_day_count() -> None:
+    q = "How quickly must non-urgent tickets get a first reply?"
+    a = "Non-urgent tickets get a first response within one business day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_priority_urgent_sla_must_not_use_day_scale() -> None:
+    q = "What first-response window applies to Priority 1 tickets?"
+    a = "Priority 1 tickets get a first response within 2 business days."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_mixed_sla_checks_urgent_clause_independently() -> None:
+    q = "What are the support SLAs?"
+    a = "Non-urgent tickets get 2 business days; urgent Severity 1 tickets get one full business day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_remote_no_approval_cap_must_match() -> None:
+    q = "How many remote days are allowed each week without approval?"
+    a = "You can work remotely up to one day per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_nonurgent_sla_must_not_use_urgent_hours()
+    test_nonurgent_sla_must_match_business_day_count()
+    test_priority_urgent_sla_must_not_use_day_scale()
+    test_mixed_sla_checks_urgent_clause_independently()
+    test_remote_no_approval_cap_must_match()
+    print("ok: safety gates block high-risk Supported regressions")
