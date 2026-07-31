@@ -299,14 +299,17 @@ def contradiction_signals(
         ):
             if _source_has_urgent_hour_sla(d_norm):
                 penalty = max(penalty, 0.88)
-    # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
-        penalty = max(penalty, 0.88)
+    # Non-urgent tickets must not use the urgent SLA window. Check claim spans so a
+    # correct mixed answer can mention both non-urgent days and urgent hours.
+    for span in _claim_spans(answer):
+        s_norm = _policy_norm(span)
+        if (
+            _contains_nonurgent(s_norm)
+            and "4 business hours" in s_norm
+            and "2 business days" in d_norm
+            and "not specified" not in s_norm
+        ):
+            penalty = max(penalty, 0.88)
 
     # Non-urgent business-day count must match the policy; otherwise unrelated "1" tokens
     # (Severity 1 / first response) can falsely ground a wrong one-day answer.
