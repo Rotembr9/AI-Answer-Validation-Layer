@@ -95,7 +95,7 @@ def _number_value(token: str) -> int | None:
 def _first_business_day_count(text_norm: str) -> int | None:
     m = re.search(
         r"\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+"
-        r"(?:full\s+)?(?:business\s+)?days?\b",
+        r"(?:full\s+)?business\s+days?\b",
         text_norm,
     )
     if not m:
