@@ -50,8 +50,56 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_closed_nonurgent_does_not_hide_urgent_sla_window() -> None:
+    q = "How quickly must non-urgent tickets get a first reply?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_nonurgent_wrong_business_day_count_not_supported() -> None:
+    q = "How quickly must non-urgent tickets get a first reply?"
+    a = "Non-urgent tickets get a first response within one business day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_priority_one_day_scale_sla_not_supported() -> None:
+    q = "What is the urgent support SLA?"
+    a = "Priority 1 tickets get a first response within 2 business days."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_mixed_sla_checks_wrong_urgent_span() -> None:
+    q = "What are the support SLAs?"
+    a = "Non-urgent tickets get 2 business days; urgent Severity 1 tickets get one full business day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_correct_mixed_sla_still_supported() -> None:
+    q = "What are the support SLAs?"
+    a = "Non-urgent tickets get 2 business days; urgent Severity 1 tickets get 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
+def test_wrong_remote_day_cap_not_supported() -> None:
+    q = "How many remote days are allowed without extra approval?"
+    a = "You can work remotely up to one day per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_closed_nonurgent_does_not_hide_urgent_sla_window()
+    test_nonurgent_wrong_business_day_count_not_supported()
+    test_priority_one_day_scale_sla_not_supported()
+    test_mixed_sla_checks_wrong_urgent_span()
+    test_correct_mixed_sla_still_supported()
+    test_wrong_remote_day_cap_not_supported()
+    print("ok: safety gates block false Supported SLA/remote-cap cases")
