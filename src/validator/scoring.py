@@ -186,6 +186,7 @@ def contradiction_signals(
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
     d_norm = doc_low.replace("-", " ")
+    sla_spans = _sla_claim_spans(answer)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -246,23 +247,18 @@ def contradiction_signals(
     if "last day" in joined_a and "month" in joined_a:
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
-    # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
-    ):
-        if "4 business hours" in d_norm:
-            penalty = max(penalty, 0.88)
-    # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
-        penalty = max(penalty, 0.88)
+    # Urgent vs non-urgent SLA mix-ups, scoped to raw-answer claim spans.
+    if "4 business hours" in d_norm:
+        for span in sla_spans:
+            if _URGENT_TERM_RE.search(span) and "2 business day" in span and "4 business hours" not in span:
+                penalty = max(penalty, 0.88)
+                break
+    # Non-urgent tickets must not use the urgent SLA window (skip if that span hedges).
+    if "2 business days" in d_norm:
+        for span in sla_spans:
+            if "non urgent" in span and "4 business hours" in span and "not specified" not in span:
+                penalty = max(penalty, 0.88)
+                break
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
