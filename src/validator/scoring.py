@@ -259,6 +259,11 @@ def contradiction_signals(
             if "non urgent" in span and "4 business hours" in span and "not specified" not in span:
                 penalty = max(penalty, 0.88)
                 break
+            if "non urgent" in span and "business day" in span and "not specified" not in span:
+                span_nums = tu.extract_numeric_tokens(span)
+                if span_nums and 2 not in span_nums:
+                    penalty = max(penalty, 0.88)
+                    break
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
@@ -279,6 +284,24 @@ def contradiction_signals(
         if "remote" in a_norm and ("day" in a_norm or "days" in a_norm):
             if "up to 3" in d_norm or "3 days" in d_norm:
                 penalty = max(penalty, 0.90)
+
+    # Remote cap understated as a maximum (e.g. "up to one day") vs policy's 3-day allowance.
+    # Do not penalize truthful subset claims like "one day is allowed".
+    if "remote" in a_norm and ("day" in a_norm or "days" in a_norm):
+        if "up to 3" in d_norm or "3 days" in d_norm:
+            cap_phrase = any(
+                phrase in a_norm
+                for phrase in ("up to", "only", "limited to", "maximum", "max ", "no more than")
+            )
+            if cap_phrase and (
+                "approval" in a_norm
+                or "sign off" in a_norm
+                or "signoff" in a_norm
+                or "manager" in a_norm
+            ):
+                nums = tu.extract_numeric_tokens(answer)
+                if nums and min(nums) < 3 and 3 not in nums:
+                    penalty = max(penalty, 0.86)
 
     # Question cites amount above cap; answer implies full reimbursement (holdout H-N04)
     q_low = question.lower()

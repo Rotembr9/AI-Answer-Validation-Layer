@@ -67,6 +67,13 @@ def test_closed_nonurgent_wrong_urgent_window_never_supported() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_nonurgent_wrong_business_day_count_never_supported() -> None:
+    q = "How quickly must non-urgent tickets get a first reply?"
+    a = "Non-urgent tickets receive a first response within one business day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 def test_correct_mixed_sla_remains_supported() -> None:
     q = "What are the support SLAs?"
     a = (
@@ -77,11 +84,28 @@ def test_correct_mixed_sla_remains_supported() -> None:
     assert r["verdict"] == "Supported", r
 
 
+def test_remote_wrong_small_cap_never_supported() -> None:
+    q = "How many remote days per week need no manager sign-off?"
+    a = "Employees may work remotely up to one day per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_remote_truthful_one_day_subset_remains_supported() -> None:
+    q = "Can I work remotely one day per week without approval?"
+    a = "Yes, one remote day per week is allowed without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
     test_mixed_sla_wrong_urgent_window_never_supported()
     test_closed_nonurgent_wrong_urgent_window_never_supported()
+    test_nonurgent_wrong_business_day_count_never_supported()
     test_correct_mixed_sla_remains_supported()
+    test_remote_wrong_small_cap_never_supported()
+    test_remote_truthful_one_day_subset_remains_supported()
     print("ok: safety gates block unsafe SLA/eligibility regressions")
