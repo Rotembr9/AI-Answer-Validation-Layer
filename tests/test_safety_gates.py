@@ -95,6 +95,33 @@ def test_mixed_sla_correct_clauses_supported() -> None:
     assert r["verdict"] == "Supported", r
 
 
+def test_priority_one_wrong_day_scale_never_supported() -> None:
+    r = validate(
+        "What is the first-response target for a Severity 1 support ticket?",
+        "Priority 1 tickets require a first response within one business day.",
+        _doc(),
+    )
+    assert r["verdict"] != "Supported", r
+
+
+def test_remote_day_cap_understated_never_supported() -> None:
+    r = validate(
+        "How many remote days per week need no manager sign-off?",
+        "1 day per week can be remote without extra approval.",
+        _doc(),
+    )
+    assert r["verdict"] != "Supported", r
+
+
+def test_remote_day_cap_correct_answer_supported() -> None:
+    r = validate(
+        "How many remote days per week need no manager sign-off?",
+        "Up to 3 days per week can be remote without extra approval.",
+        _doc(),
+    )
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
@@ -103,4 +130,7 @@ if __name__ == "__main__":
     test_non_urgent_wrong_business_day_count_never_supported()
     test_mixed_sla_wrong_urgent_clause_never_supported()
     test_mixed_sla_correct_clauses_supported()
+    test_priority_one_wrong_day_scale_never_supported()
+    test_remote_day_cap_understated_never_supported()
+    test_remote_day_cap_correct_answer_supported()
     print("ok: safety gates block unsafe SLA and exclusivity Supported verdicts")

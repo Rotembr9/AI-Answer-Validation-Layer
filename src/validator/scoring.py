@@ -295,6 +295,36 @@ def contradiction_signals(
             if "up to 3" in d_norm or "3 days" in d_norm:
                 penalty = max(penalty, 0.90)
 
+    # Remote cap understated as the answer to a "how many need no approval" question.
+    # A bare "one day is allowed" can be a truthful subset; require cap/approval context.
+    if "remote" in a_norm and ("day" in a_norm or "days" in a_norm):
+        if "up to 3" in d_norm or "3 days" in d_norm:
+            asks_for_cap = (
+                "how many" in q_norm
+                or "cap" in q_norm
+                or "limit" in q_norm
+                or "need no" in q_norm
+                or "without approval" in q_norm
+                or "without extra approval" in q_norm
+                or "sign off" in q_norm
+                or "signoff" in q_norm
+                or "manager" in q_norm
+            )
+            answer_sets_cap = (
+                "approval" in a_norm
+                or "sign off" in a_norm
+                or "signoff" in a_norm
+                or "manager" in a_norm
+                or "up to" in a_norm
+                or "only" in a_norm
+                or "limited to" in a_norm
+                or "maximum" in a_norm
+                or "no more than" in a_norm
+            )
+            nums = tu.extract_numeric_tokens(answer)
+            if asks_for_cap and answer_sets_cap and nums and max(nums) < 3:
+                penalty = max(penalty, 0.86)
+
     # Question cites amount above cap; answer implies full reimbursement (holdout H-N04)
     q_low = question.lower()
     if "650" in q_low or "$650" in question:
