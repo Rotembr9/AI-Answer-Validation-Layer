@@ -119,6 +119,33 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _answer_denies_contractor_eligibility(ans_low: str) -> bool:
+    """Recognize paraphrases of the policy's contractor exclusion."""
+    text = ans_low.lower().replace("-", " ")
+    contractor_first = re.search(
+        r"\bcontractors?\b.{0,80}\b("
+        r"not\s+(?:being\s+|be\s+)?(?:eligible|included|covered|allowed)|"
+        r"ineligible|excluded|"
+        r"(?:cannot|can't|can\s+not|may\s+not)\s+"
+        r"(?:receive|get|qualify|claim|use|be\s+reimbursed)"
+        r")\b",
+        text,
+    )
+    if contractor_first:
+        return True
+    denial_first = re.search(
+        r"\b(?:cannot|can't|can\s+not|may\s+not)\s+"
+        r"(?:be\s+)?(?:received|claimed|used|paid|reimbursed)\b"
+        r".{0,80}\b(?:by|for)\s+contractors?\b",
+        text,
+    )
+    if denial_first:
+        return True
+    if re.search(r"\bdoes\s+not\s+apply\s+to\s+contractors?\b", text):
+        return True
+    return False
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +185,8 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        contractor_exclusion_covered = _answer_denies_contractor_eligibility(a_norm)
+        if "contractors are not eligible" in doc_low and not contractor_exclusion_covered:
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -336,9 +364,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_denies_contractor_eligibility(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
