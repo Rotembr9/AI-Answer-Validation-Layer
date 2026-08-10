@@ -1,6 +1,6 @@
 # AI Answer Validation — Evaluation report
 
-*Generated: 2026-05-03 08:54:50 (UTC)*
+*Generated: 2026-08-10 10:06:43 (UTC)*
 
 ---
 
@@ -22,7 +22,7 @@ Compared to the previous `reports/last_run_metrics.json` snapshot:
 - **Any false Supported:** 0 (was 0)
 
 #### `examples_holdout.json`
-- **Accuracy:** 0.8000 (was 0.8000)
+- **Accuracy:** 0.8333 (was 0.8000)
 - **Strict false Supported:** 0 (was 0)
 - **Any false Supported:** 0 (was 0)
 
@@ -56,8 +56,8 @@ The snapshot file is overwritten each run so the *next* report can compare to th
 | Metric | Value |
 |--------|-------|
 | Total examples | 30 |
-| Accuracy | 0.8000 (24/30) |
-| Supported precision | 0.7000 |
+| Accuracy | 0.8333 (25/30) |
+| Supported precision | 1.0000 |
 | Not Supported recall | 1.0000 |
 | False Supported (strict: gold NS → pred Supported) | **0** |
 | False Supported (any gold ≠ Supported → pred Supported) | **0** |
@@ -68,7 +68,7 @@ The snapshot file is overwritten each run so the *next* report can compare to th
 |-----------------|-----------|-----------------|---------|
 | **Supported** | 7 | 0 | 3 |
 | **Not Supported** | 0 | 10 | 0 |
-| **Partial** | 0 | 3 | 7 |
+| **Partial** | 0 | 2 | 8 |
 
 ---
 
@@ -83,9 +83,9 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 ### Current limitations
 
 - **Main set (`data/examples.json`):** accuracy **100.0%** (30/30); gold *Supported* recall **100.0%** (10/10 correct as *Supported*).
-- **Holdout (`data/examples_holdout.json`):** accuracy **80.0%** (24/30); gold *Supported* recall **70.0%** (7/10); *Not Supported* recall **100.0%**.
+- **Holdout (`data/examples_holdout.json`):** accuracy **83.3%** (25/30); gold *Supported* recall **70.0%** (7/10); *Not Supported* recall **100.0%**.
 
-- **Remaining labeled mismatches:** **6** row(s) across both sets (see §C). Mostly *Supported*→*Partial*, *Partial*→*Not Supported*, or borderline evidence scores — not safety violations.
+- **Remaining labeled mismatches:** **5** row(s) across both sets (see §C). Mostly *Supported*→*Partial*, *Partial*→*Not Supported*, or borderline evidence scores — not safety violations.
 
 ### Next recommended improvement
 
@@ -101,7 +101,7 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 
 *None — all labels match.*
 
-### `data/examples_holdout.json` — 6 mismatch(es)
+### `data/examples_holdout.json` — 5 mismatch(es)
 
 | ID | Expected | Predicted | Conf | Question (short) |
 |----|----------|-----------|------|------------------|
@@ -110,7 +110,6 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 | H-S10 | Supported | Partial | 0.496 | Are purchases made in January reported in January? |
 | H-P03 | Partial | Not Supported | 0.132 | What are the support SLAs? |
 | H-P06 | Partial | Not Supported | 0.000 | Expense timing for Q1 purchases? |
-| H-P07 | Partial | Not Supported | 0.138 | Who gets remote stipend money? |
 
 <details>
 <summary>Full detail (question, answer, reason, evidence)</summary>
@@ -200,23 +199,6 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 2. 6. Equipment: Company laptops remain company property and must be returned within 10 business days after employment ends; failure to return may result in payroll deduction up to the replacement cost.
 3. 1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.
 
-#### H-P07
-
-- **Expected:** Partial  
-- **Predicted:** Not Supported  
-- **Confidence:** 0.138
-
-**Question:** Who gets remote stipend money?
-
-**Answer:** Full-time employees can receive it; the policy also references contractors not being eligible but does not describe hybrid roles.
-
-**Reason (model):** Strong contradiction or unreliable numeric claims versus the source.
-
-**Evidence lines:**
-1. 1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.
-2. REMOTE WORK AND EXPENSE POLICY (Effective January 1, 2025)
-3. 3. Annual home-office stipend: Up to $500 per calendar year for approved expenses; amounts above $500 are not reimbursed.
-
 </details>
 
 ---
@@ -235,9 +217,7 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 
 **What is working well:** The validator did not label any example whose correct label is *Not Supported* or *Partial* as *Supported* on either dataset. That is the most important safety signal for a demo.
 
-**Accuracy:** On the main labeled set (examples.json), **30/30** (100.0%) examples match the gold label. On the holdout set (examples_holdout.json), **24/30** (80.0%) match.
-
-**Supported precision** (when the model says *Supported*, how often that is correct) is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. That is conservative and safer than false *Supported*, but worth improving for UX.
+**Accuracy:** On the main labeled set (examples.json), **30/30** (100.0%) examples match the gold label. On the holdout set (examples_holdout.json), **25/30** (83.3%) match.
 
 **What to improve next:** Improve recall on clearly false numeric or SLA claims without raising false *Supported* rates; optionally add clearer explanations in the UI when the verdict is *Partial*.
 
