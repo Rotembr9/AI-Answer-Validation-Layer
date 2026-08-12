@@ -191,6 +191,8 @@ def contradiction_signals(
     joined_e = " ".join(e_tokens).lower()
     q_norm = question.lower().replace("-", " ")
     q_sla = _normalize_sla_text(question)
+    question_urgent_scope = bool(_URGENT_TERM_RE.search(q_sla)) and "non urgent" not in q_sla
+    question_nonurgent_scope = "non urgent" in q_sla and not _URGENT_TERM_RE.search(q_sla)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
@@ -262,7 +264,7 @@ def contradiction_signals(
             if _URGENT_TERM_RE.search(span) and "2 business day" in span and "4 business hours" not in span:
                 penalty = max(penalty, 0.88)
                 break
-            if (_URGENT_TERM_RE.search(span) or _URGENT_TERM_RE.search(q_sla)) and (
+            if (_URGENT_TERM_RE.search(span) or question_urgent_scope) and (
                 "business hours" in span or "business hour" in span
             ):
                 span_nums = tu.extract_numeric_tokens(span)
@@ -275,7 +277,7 @@ def contradiction_signals(
             if "non urgent" in span and "4 business hours" in span and "not specified" not in span:
                 penalty = max(penalty, 0.88)
                 break
-            if "non urgent" in q_sla and "business hour" in span and "not specified" not in span:
+            if question_nonurgent_scope and "business hour" in span and "not specified" not in span:
                 penalty = max(penalty, 0.88)
                 break
             if "non urgent" in span and "business day" in span and "not specified" not in span:
