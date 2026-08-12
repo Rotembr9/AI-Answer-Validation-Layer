@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from validator import load_examples_json, validate  # noqa: E402
+from metrics_utils import predicted_supported_precision  # noqa: E402
 
 LABELS = ("Supported", "Not Supported", "Partial")
 
@@ -74,7 +75,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     source_document, examples = load_examples_json(path)
     expected: list[str] = []
     predicted: list[str] = []
-    supported_tp = supported_fp = 0
     ns_actual = ns_tp = 0
     rows: list[dict] = []
     for ex in examples:
@@ -95,11 +95,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            else:
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -108,11 +103,7 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
-    sp = (
-        supported_tp / (supported_tp + supported_fp)
-        if (supported_tp + supported_fp)
-        else 0.0
-    )
+    sp = predicted_supported_precision(expected, predicted)
     ns_r = ns_tp / ns_actual if ns_actual else 0.0
     strict_fs = sum(
         1 for e, p in zip(expected, predicted) if e == "Not Supported" and p == "Supported"
