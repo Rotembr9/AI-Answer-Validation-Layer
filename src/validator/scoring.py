@@ -190,6 +190,7 @@ def contradiction_signals(
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
     q_norm = question.lower().replace("-", " ")
+    q_sla = _normalize_sla_text(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
@@ -261,10 +262,20 @@ def contradiction_signals(
             if _URGENT_TERM_RE.search(span) and "2 business day" in span and "4 business hours" not in span:
                 penalty = max(penalty, 0.88)
                 break
+            if (_URGENT_TERM_RE.search(span) or _URGENT_TERM_RE.search(q_sla)) and (
+                "business hours" in span or "business hour" in span
+            ):
+                span_nums = tu.extract_numeric_tokens(span)
+                if span_nums and 4 not in span_nums:
+                    penalty = max(penalty, 0.88)
+                    break
     # Non-urgent tickets must not use the urgent SLA window (skip if that span hedges).
     if "2 business days" in d_norm:
         for span in sla_spans:
             if "non urgent" in span and "4 business hours" in span and "not specified" not in span:
+                penalty = max(penalty, 0.88)
+                break
+            if "non urgent" in q_sla and "business hour" in span and "not specified" not in span:
                 penalty = max(penalty, 0.88)
                 break
             if "non urgent" in span and "business day" in span and "not specified" not in span:
