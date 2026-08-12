@@ -1,6 +1,6 @@
 # AI Answer Validation — Evaluation report
 
-*Generated: 2026-08-12 10:08:09 (UTC)*
+*Generated: 2026-08-12 10:08:29 (UTC)*
 
 ---
 
@@ -17,7 +17,7 @@
 Compared to the previous `reports/last_run_metrics.json` snapshot:
 
 #### `examples.json`
-- **Accuracy:** 1.0000 (was 0.9667)
+- **Accuracy:** 1.0000 (was 1.0000)
 - **Strict false Supported:** 0 (was 0)
 - **Any false Supported:** 0 (was 0)
 
