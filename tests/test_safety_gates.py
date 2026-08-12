@@ -81,6 +81,13 @@ def test_priority_urgent_wrong_business_day_window_never_supported() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_urgent_wrong_business_hour_count_never_supported() -> None:
+    q = "Urgent Severity 1 response time?"
+    a = "First response within 6 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 def test_correct_mixed_sla_remains_supported() -> None:
     q = "What are the support SLAs?"
     a = (
@@ -105,6 +112,20 @@ def test_remote_truthful_one_day_subset_remains_supported() -> None:
     assert r["verdict"] == "Supported", r
 
 
+def test_eligibility_qualify_wording_omission_never_supported() -> None:
+    q = "Which employees qualify for the $500 stipend?"
+    a = "Full-time staff are eligible for the stipend."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_eligibility_can_get_wording_omission_never_supported() -> None:
+    q = "Can contractors get the stipend?"
+    a = "Full-time staff are eligible for the stipend."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
@@ -113,7 +134,10 @@ if __name__ == "__main__":
     test_closed_nonurgent_wrong_urgent_window_never_supported()
     test_nonurgent_wrong_business_day_count_never_supported()
     test_priority_urgent_wrong_business_day_window_never_supported()
+    test_urgent_wrong_business_hour_count_never_supported()
     test_correct_mixed_sla_remains_supported()
     test_remote_wrong_small_cap_never_supported()
     test_remote_truthful_one_day_subset_remains_supported()
+    test_eligibility_qualify_wording_omission_never_supported()
+    test_eligibility_can_get_wording_omission_never_supported()
     print("ok: safety gates block unsafe SLA/eligibility regressions")

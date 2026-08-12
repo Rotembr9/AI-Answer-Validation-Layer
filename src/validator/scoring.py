@@ -90,10 +90,18 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     # Scope by claim span so a correct non-urgent clause does not mask a wrong urgent clause.
     if urgent_hour_sla:
         for span in spans:
-            if _URGENT_TERM_RE.search(span) and _DAY_SCALE_RE.search(span):
+            if not _URGENT_TERM_RE.search(span):
+                continue
+            if _DAY_SCALE_RE.search(span):
                 extra = max(extra, 0.92)
                 forbid = True
                 break
+            if "business hours" in span or "business hour" in span:
+                span_nums = tu.extract_numeric_tokens(span)
+                if span_nums and 4 not in span_nums:
+                    extra = max(extra, 0.92)
+                    forbid = True
+                    break
 
     # Non-urgent tickets must not inherit the urgent 4-business-hour window.
     # Normalize closed-up "nonurgent" before checking; otherwise it is parsed as urgent.
@@ -341,8 +349,10 @@ def contradiction_signals(
 # Questions where a paired allow/deny or “only” constraint is typically essential.
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
-    r"eligib|requirement|permission|qualif|"
+    r"eligib\w*|requirement|permission|qualif\w*|"
     r"who\s+(can|may|is|are)|"
+    r"can\s+[^?]{0,60}\b(get|receive)\b|"
+    r"do(?:es)?\s+[^?]{0,60}\b(get|receive)\b|"
     r"\blimits?\b|restrict|"
     r"allowed|"
     r"stipend\s+for\s+whom|who\s+gets"
