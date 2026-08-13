@@ -56,6 +56,21 @@ def _confusion_matrix(
     return m
 
 
+def _supported_precision_counts(
+    expected: list[str], predicted: list[str]
+) -> tuple[int, int]:
+    """Return true/false positives where the predicted label is Supported."""
+    supported_tp = supported_fp = 0
+    for exp, pred in zip(expected, predicted):
+        if pred != "Supported":
+            continue
+        if exp == "Supported":
+            supported_tp += 1
+        else:
+            supported_fp += 1
+    return supported_tp, supported_fp
+
+
 def _format_matrix_md(cells: dict[tuple[str, str], int]) -> str:
     lines = [
         "| (gold → pred) | Supported | Not Supported | Partial |",
@@ -74,7 +89,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     source_document, examples = load_examples_json(path)
     expected: list[str] = []
     predicted: list[str] = []
-    supported_tp = supported_fp = 0
     ns_actual = ns_tp = 0
     rows: list[dict] = []
     for ex in examples:
@@ -95,11 +109,6 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            else:
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -108,6 +117,7 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     n = len(examples)
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
+    supported_tp, supported_fp = _supported_precision_counts(expected, predicted)
     sp = (
         supported_tp / (supported_tp + supported_fp)
         if (supported_tp + supported_fp)
