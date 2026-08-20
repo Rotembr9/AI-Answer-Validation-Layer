@@ -265,6 +265,25 @@ def contradiction_signals(
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
+    # Remote no-approval cap: small wrong caps can be hidden by unrelated "Severity 1" numbers.
+    if (
+        "remote" in a_norm
+        and "day" in a_norm
+        and ("up to 3" in d_norm or "3 days" in d_norm)
+        and (
+            "without approval" in a_norm
+            or "without extra approval" in a_norm
+            or "no approval" in a_norm
+            or "need no" in a_norm
+        )
+        and "at least" not in a_norm
+    ):
+        understated_remote_cap = re.search(
+            r"\b(one|two|1|2)\s+(remote\s+)?days?\b", a_norm
+        )
+        if understated_remote_cap:
+            penalty = max(penalty, 0.86)
+
     # Part-time stipend eligibility vs full-time-only policy (holdout H-N01)
     if ("part-time" in q_norm or "part time" in q_norm or "part-time" in a_norm or "part time" in a_norm):
         if any(w in a_norm for w in ("qualify", "eligible", "same", "everyone")):
@@ -322,7 +341,7 @@ def contradiction_signals(
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
     r"eligib|requirement|permission|qualif|"
-    r"who\s+(can|may|is|are)|"
+    r"who\s+(can|may|is|are|receives?|gets)|"
     r"\blimits?\b|restrict|"
     r"allowed|"
     r"stipend\s+for\s+whom|who\s+gets"

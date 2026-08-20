@@ -77,6 +77,20 @@ def test_correct_mixed_sla_still_supported() -> None:
     assert r["verdict"] == "Supported", r
 
 
+def test_understated_remote_no_approval_cap_never_supported() -> None:
+    q = "Can I work remotely without approval?"
+    a = "You may work remotely one day per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_who_receives_eligibility_omission_is_partial() -> None:
+    q = "Who receives the home-office stipend?"
+    a = "Full-time employees are eligible for the remote stipend and equipment reimbursement."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Partial", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
@@ -84,4 +98,6 @@ if __name__ == "__main__":
     test_mixed_sla_wrong_urgent_window_never_supported()
     test_priority_one_day_scale_never_supported()
     test_correct_mixed_sla_still_supported()
+    test_understated_remote_no_approval_cap_never_supported()
+    test_who_receives_eligibility_omission_is_partial()
     print("ok: safety gates passed")
