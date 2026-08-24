@@ -113,6 +113,32 @@ def _business_day_counts(text: str) -> set[int]:
     return counts
 
 
+def _plain_day_counts(text: str) -> set[int]:
+    t = _normalize_sla_text(text)
+    word_to_int = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    }
+    counts: set[int] = set()
+    for raw in re.findall(
+        r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:remote\s+)?days?\b",
+        t,
+    ):
+        if raw.isdigit():
+            counts.add(int(raw))
+        elif raw in word_to_int:
+            counts.add(word_to_int[raw])
+    return counts
+
+
 def _scoped_business_day_counts(text: str, scope: str) -> set[int]:
     counts: set[int] = set()
     for raw_span in _sla_claim_spans(text):
@@ -121,6 +147,27 @@ def _scoped_business_day_counts(text: str, scope: str) -> set[int]:
             counts |= _business_day_counts(span)
         elif scope == "urgent" and _has_urgent_scope(span):
             counts |= _business_day_counts(span)
+    return counts
+
+
+def _approval_free_day_counts(text: str, require_remote_term: bool = True) -> set[int]:
+    counts: set[int] = set()
+    for raw_span in _sla_claim_spans(text):
+        span = _normalize_sla_text(raw_span)
+        if require_remote_term and not (
+            "remote" in span or "work from home" in span or "wfh" in span
+        ):
+            continue
+        approval_free = (
+            ("without" in span and ("approval" in span or "sign off" in span))
+            or "without extra approval" in span
+            or "no approval" in span
+            or "need no" in span
+            or "needs no" in span
+            or "no manager sign off" in span
+        )
+        if approval_free:
+            counts |= _plain_day_counts(span)
     return counts
 
 
@@ -182,6 +229,22 @@ def supported_safety_flags(answer: str, document: str, question: str = "") -> tu
             if answer_counts and doc_counts and answer_counts.isdisjoint(doc_counts):
                 extra = max(extra, 0.88)
                 forbid = True
+
+    # Remote no-approval day caps are contextual: a wrong "one day" can otherwise
+    # be grounded by unrelated 1s in dates/section labels.
+    doc_remote_counts = _approval_free_day_counts(document)
+    answer_remote_counts = _approval_free_day_counts(answer)
+    if not answer_remote_counts and (
+        "remote" in q or "work from home" in q or "wfh" in q
+    ):
+        answer_remote_counts = _approval_free_day_counts(answer, require_remote_term=False)
+    if (
+        doc_remote_counts
+        and answer_remote_counts
+        and answer_remote_counts.isdisjoint(doc_remote_counts)
+    ):
+        extra = max(extra, 0.88)
+        forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial = re.search(
@@ -415,6 +478,10 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
 def _source_has_exclusivity_marker(doc_low: str) -> bool:
     if "not eligible" in doc_low:
         return True
+    if re.search(r"\b(excluded|excludes|exclude)\b", doc_low) and re.search(
+        r"\b(contractor|part\s+time|staff|employee|eligible|stipend)\b", doc_low
+    ):
+        return True
     if "are not allowed" in doc_low:
         return True
     if re.search(r"\bonly\b", doc_low) and re.search(
@@ -474,6 +541,17 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
             return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
+            return True
+    if re.search(r"\b(excluded|excludes|exclude)\b", doc_low):
+        excluded_group_named = (
+            ("contractor" in doc_low and "contractor" in ans_low)
+            or ("part time" in doc_low and "part time" in ans_low)
+            or ("part-time" in doc_low and "part time" in ans_low)
+        )
+        if excluded_group_named and re.search(
+            r"\b(excluded|excludes|exclude|ineligible|not\s+eligible)\b",
+            ans_low,
+        ):
             return True
     return False
 

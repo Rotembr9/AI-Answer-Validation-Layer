@@ -88,6 +88,42 @@ def test_nonurgent_wrong_business_day_count_ignores_unrelated_numbers() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_remote_understated_no_approval_cap_never_supported() -> None:
+    q = "How many remote days without approval?"
+    a = "You may work remotely one day per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_correct_remote_no_approval_cap_can_be_supported() -> None:
+    q = "How many remote days without approval?"
+    a = "You may work remotely up to 3 days per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
+def test_excluded_eligibility_omission_is_partial_not_supported() -> None:
+    q = "Who is eligible for the remote stipend?"
+    a = "Full-time staff are eligible for the remote stipend."
+    doc = (
+        "The remote stipend is for full-time staff. "
+        "Contractors and part-time employees are excluded."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
+def test_excluded_eligibility_answer_can_be_supported_when_covered() -> None:
+    q = "Who is eligible for the remote stipend?"
+    a = "Full-time staff are eligible; contractors and part-time employees are excluded."
+    doc = (
+        "The remote stipend is for full-time staff. "
+        "Contractors and part-time employees are excluded."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
 def test_correct_mixed_sla_can_be_supported() -> None:
     q = "What are the support SLAs?"
     a = (
@@ -107,5 +143,9 @@ if __name__ == "__main__":
     test_mixed_sla_wrong_urgent_clause_never_supported()
     test_question_scoped_nonurgent_hours_never_supported()
     test_nonurgent_wrong_business_day_count_ignores_unrelated_numbers()
+    test_remote_understated_no_approval_cap_never_supported()
+    test_correct_remote_no_approval_cap_can_be_supported()
+    test_excluded_eligibility_omission_is_partial_not_supported()
+    test_excluded_eligibility_answer_can_be_supported_when_covered()
     test_correct_mixed_sla_can_be_supported()
     print("ok: safety-gate regressions are not Supported")
