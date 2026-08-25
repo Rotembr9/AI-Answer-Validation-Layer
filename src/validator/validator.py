@@ -45,7 +45,11 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
     kw = sc.keyword_match_score(question, answer, source_document, top_line)
     num_score, unknown_nums = sc.number_match_score(answer, source_document)
     contra = sc.contradiction_signals(answer, top_line, source_document, question)
-    forbid_sup, safety_contra = sc.supported_safety_flags(answer, source_document)
+    forbid_sup, safety_contra = sc.supported_safety_flags(
+        answer,
+        source_document,
+        question,
+    )
     contra = max(contra, safety_contra)
     excl_pen = sc.incomplete_exclusivity_penalty(question, answer, source_document)
     contra = max(contra, excl_pen)

@@ -50,8 +50,70 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_closed_nonurgent_urgent_window_never_supported() -> None:
+    q = "How quickly must nonurgent tickets get a first reply?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_priority_one_day_scale_sla_never_supported() -> None:
+    q = "What first-response window applies to Priority 1 tickets?"
+    a = "Priority 1 tickets get a first response within one full business day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_mixed_sla_wrong_urgent_clause_never_supported() -> None:
+    q = "What are the support SLAs?"
+    a = (
+        "Non-urgent tickets get a response within 2 business days; "
+        "urgent Severity 1 tickets get one full business day."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_correct_mixed_sla_answer_still_supported() -> None:
+    q = "What are the support SLAs?"
+    a = (
+        "Non-urgent tickets get a response within 2 business days; "
+        "urgent Severity 1 tickets get 4 business hours."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
+def test_question_scoped_nonurgent_hour_window_never_supported() -> None:
+    q = "How quickly must nonurgent tickets get a first reply?"
+    a = "Within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_nonurgent_wrong_business_day_count_never_supported() -> None:
+    q = "How quickly must nonurgent tickets get a first reply?"
+    a = "Nonurgent tickets get a response within 10 business days."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_remote_no_approval_cap_mismatch_never_supported() -> None:
+    q = "How many remote days per week need no manager sign-off?"
+    a = "You may work remotely one day per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_closed_nonurgent_urgent_window_never_supported()
+    test_priority_one_day_scale_sla_never_supported()
+    test_mixed_sla_wrong_urgent_clause_never_supported()
+    test_correct_mixed_sla_answer_still_supported()
+    test_question_scoped_nonurgent_hour_window_never_supported()
+    test_nonurgent_wrong_business_day_count_never_supported()
+    test_remote_no_approval_cap_mismatch_never_supported()
+    print("ok: high-risk safety gates passed")
