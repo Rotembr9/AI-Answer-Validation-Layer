@@ -328,23 +328,26 @@ def contradiction_signals(
     if "last day" in joined_a and "month" in joined_a:
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
-    # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
-    ):
-        if "4 business hours" in d_norm:
+    # Urgent vs non-urgent SLA mix-ups. Scope these by claim span so a correct
+    # mixed SLA answer does not cross-contaminate non-urgent and urgent clauses.
+    for span in _claim_spans(answer):
+        if (
+            _has_urgent_term(span)
+            and "2 business day" in span
+            and "4 business hours" not in span
+            and "4 business hours" in d_norm
+        ):
             penalty = max(penalty, 0.88)
-    # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
-        penalty = max(penalty, 0.88)
+        span_scoped_nonurgent = _has_nonurgent_term(span) or (
+            _has_nonurgent_term(q_norm) and not _has_urgent_term(span)
+        )
+        if (
+            span_scoped_nonurgent
+            and "4 business hours" in span
+            and "2 business days" in d_norm
+            and "not specified" not in span
+        ):
+            penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
