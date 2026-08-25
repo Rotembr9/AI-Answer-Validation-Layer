@@ -37,7 +37,93 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
-def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def _norm_policy_text(text: str) -> str:
+    """Normalize policy terms for substring-based safety rules."""
+    norm = text.lower().replace("-", " ")
+    norm = re.sub(r"\bnonurgent\b", "non urgent", norm)
+    norm = re.sub(r"\s+", " ", norm)
+    return norm.strip()
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Split an answer into claim-sized spans so mixed SLA answers stay scoped."""
+    norm = _norm_policy_text(text)
+    spans = [p.strip() for p in re.split(r"[.;\n]+", norm) if p.strip()]
+    return spans or ([norm] if norm else [])
+
+
+def _has_nonurgent_term(text: str) -> bool:
+    return "non urgent" in text
+
+
+def _has_urgent_term(text: str) -> bool:
+    if "severity 1" in text or re.search(r"\b(priority\s*1|p1)\b", text):
+        return True
+    return "urgent" in text and "non urgent" not in text
+
+
+def _to_int(raw: str) -> int | None:
+    if raw.isdigit():
+        return int(raw)
+    return _NUMBER_WORDS.get(raw)
+
+
+def _day_counts(text: str) -> list[tuple[int, str]]:
+    counts: list[tuple[int, str]] = []
+    for m in re.finditer(
+        r"\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+"
+        r"(?:full\s+)?(?:(business|calendar)\s+)?days?\b",
+        text,
+    ):
+        value = _to_int(m.group(1))
+        if value is not None:
+            counts.append((value, m.group(2) or "day"))
+    return counts
+
+
+def _doc_nonurgent_business_day_count(doc_norm: str) -> int | None:
+    for span in _claim_spans(doc_norm):
+        if _has_nonurgent_term(span) and "business" in span and "day" in span:
+            for count, unit in _day_counts(span):
+                if unit == "business":
+                    return count
+    return None
+
+
+def _doc_remote_no_approval_cap(doc_norm: str) -> int | None:
+    for span in _claim_spans(doc_norm):
+        if "remote" not in span or "approval" not in span:
+            continue
+        if not ("without" in span or "no approval" in span):
+            continue
+        cap_match = re.search(
+            r"\bup to\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days?\b",
+            span,
+        )
+        if cap_match:
+            return _to_int(cap_match.group(1))
+    return None
+
+
+def supported_safety_flags(
+    answer: str,
+    document: str,
+    question: str = "",
+) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
 
@@ -49,37 +135,80 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _norm_policy_text(answer)
+    d = _norm_policy_text(document)
+    q = _norm_policy_text(question)
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
+    answer_spans = _claim_spans(answer)
+    doc_has_urgent_hours = "business hours" in d and (
+        "urgent" in d or "severity 1" in d
     )
+    nonurgent_doc_days = _doc_nonurgent_business_day_count(d)
 
-    # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
+    # Day-scale response window for urgent/Severity-1/Priority-1 vs document's hour-scale SLA.
+    for span in answer_spans:
+        if _has_urgent_term(span) and doc_has_urgent_hours and _day_counts(span):
             extra = max(extra, 0.92)
             forbid = True
+        span_scoped_nonurgent = _has_nonurgent_term(span) or (
+            _has_nonurgent_term(q) and not _has_urgent_term(span)
+        )
+        if not span_scoped_nonurgent or nonurgent_doc_days is None:
+            continue
+        if "business hours" in span:
+            extra = max(extra, 0.88)
+            forbid = True
+        for claimed_days, unit in _day_counts(span):
+            if unit != "business" or claimed_days != nonurgent_doc_days:
+                extra = max(extra, 0.88)
+                forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial = re.search(
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+    if denial and _has_urgent_term(a):
+        if (
+            "window" in a
+            or "timeframe" in a
+            or "hours" in a
+            or "sla" in a
+            or "response" in a
+        ) and "4 business hours" in d:
             extra = max(extra, 0.76)
             forbid = True
+
+    # Remote-work cap claims must match the no-approval cap in cap-seeking questions.
+    remote_cap = _doc_remote_no_approval_cap(d)
+    asks_remote_cap = (
+        "how many" in q
+        or "limit" in q
+        or "cap" in q
+        or "allowed each week" in q
+        or "need no" in q
+        or "without approval" in q
+        or "without extra approval" in q
+        or "sign off" in q
+    )
+    if remote_cap is not None and asks_remote_cap:
+        for span in answer_spans:
+            if "remote" not in span or "day" not in span:
+                continue
+            if not (
+                "without approval" in span
+                or "without extra approval" in span
+                or "no approval" in span
+                or "no sign off" in span
+                or "need no" in span
+            ):
+                continue
+            for claimed_days, _unit in _day_counts(span):
+                if claimed_days != remote_cap:
+                    extra = max(extra, 0.86)
+                    forbid = True
 
     return forbid, extra
 
@@ -134,11 +263,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _norm_policy_text(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    a_norm = _norm_policy_text(joined_a)
+    d_norm = _norm_policy_text(doc_low)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -288,6 +417,8 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
 def _source_has_exclusivity_marker(doc_low: str) -> bool:
     if "not eligible" in doc_low:
         return True
+    if re.search(r"\b(excluded|excludes|exclude)\b", doc_low):
+        return True
     if "are not allowed" in doc_low:
         return True
     if re.search(r"\bonly\b", doc_low) and re.search(
@@ -366,11 +497,11 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
+    doc_low = _norm_policy_text(document)
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
 
-    ans_low = answer.lower().replace("-", " ")
+    ans_low = _norm_policy_text(answer)
 
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
