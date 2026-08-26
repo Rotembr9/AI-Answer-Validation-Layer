@@ -51,6 +51,19 @@ _HOUR_SCALE_RE = re.compile(
     r"\b(?:(?:one|two|three|four|1|2|3|4)\s+)?(?:business\s+)?hours?\b",
     re.IGNORECASE,
 )
+_SLA_DENIAL_RE = re.compile(
+    r"\b(does not|don't|do not|doesn't)\s+"
+    r"(give|list|state|define|specify|mention|document)",
+    re.IGNORECASE,
+)
+_SLA_OMISSION_RE = re.compile(
+    r"\b("
+    r"unspecified|"
+    r"not\s+(?:documented|defined|stated|specified|listed|mentioned)|"
+    r"no\s+(?:specific\s+)?(?:hours?|window|timeframe|response\s+time|sla)"
+    r")\b",
+    re.IGNORECASE,
+)
 _SLA_CLAIM_BOUNDARY_RE = re.compile(
     r"[.;:\n]+|"
     r"\b(?:but|however|while|whereas)\b|"
@@ -96,6 +109,18 @@ def _has_nonurgent_hour_scale_claim(text: str) -> bool:
     return False
 
 
+def _has_urgent_omission_claim(text: str) -> bool:
+    for span in _sla_claim_spans(text):
+        if not _has_urgent_scope(span):
+            continue
+        if _SLA_OMISSION_RE.search(span):
+            return True
+        denial = _SLA_DENIAL_RE.search(span)
+        if denial and re.search(r"\b(window|timeframe|hours?|response\s+time|sla)\b", span):
+            return True
+    return False
+
+
 def _document_has_urgent_hour_sla(doc_norm: str) -> bool:
     return (
         ("4 business hours" in doc_norm or "business hours" in doc_norm)
@@ -135,14 +160,9 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
-    denial = re.search(
-        r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
-        a,
-    )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
-            extra = max(extra, 0.76)
-            forbid = True
+    if _document_has_urgent_hour_sla(d) and _has_urgent_omission_claim(a):
+        extra = max(extra, 0.76)
+        forbid = True
 
     return forbid, extra
 
@@ -331,7 +351,7 @@ def contradiction_signals(
 # Questions where a paired allow/deny or “only” constraint is typically essential.
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
-    r"eligib|requirement|permission|qualif|"
+    r"eligib\w*|requirement|permission|qualif|"
     r"who\s+(can|may|is|are)|"
     r"\blimits?\b|restrict|"
     r"allowed|"
