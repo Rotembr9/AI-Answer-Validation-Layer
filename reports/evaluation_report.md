@@ -1,6 +1,6 @@
 # AI Answer Validation — Evaluation report
 
-*Generated: 2026-05-03 08:54:50 (UTC)*
+*Generated: 2026-08-27 10:04:43 (UTC)*
 
 ---
 
@@ -57,7 +57,7 @@ The snapshot file is overwritten each run so the *next* report can compare to th
 |--------|-------|
 | Total examples | 30 |
 | Accuracy | 0.8000 (24/30) |
-| Supported precision | 0.7000 |
+| Supported precision | 1.0000 |
 | Not Supported recall | 1.0000 |
 | False Supported (strict: gold NS → pred Supported) | **0** |
 | False Supported (any gold ≠ Supported → pred Supported) | **0** |
@@ -236,8 +236,6 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 **What is working well:** The validator did not label any example whose correct label is *Not Supported* or *Partial* as *Supported* on either dataset. That is the most important safety signal for a demo.
 
 **Accuracy:** On the main labeled set (examples.json), **30/30** (100.0%) examples match the gold label. On the holdout set (examples_holdout.json), **24/30** (80.0%) match.
-
-**Supported precision** (when the model says *Supported*, how often that is correct) is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. That is conservative and safer than false *Supported*, but worth improving for UX.
 
 **What to improve next:** Improve recall on clearly false numeric or SLA claims without raising false *Supported* rates; optionally add clearer explanations in the UI when the verdict is *Partial*.
 
