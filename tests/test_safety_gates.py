@@ -50,8 +50,38 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_mixed_sla_wrong_urgent_window_never_supported() -> None:
+    q = "Urgent vs non-urgent support SLAs?"
+    a = (
+        "Non-urgent tickets receive a first response within 2 business days; "
+        "urgent Severity 1 tickets get a first response within one full business day."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_closed_nonurgent_with_urgent_window_never_supported() -> None:
+    q = "How fast do nonurgent tickets get a first response?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_correct_mixed_sla_remains_supported() -> None:
+    q = "Urgent vs non-urgent support SLAs?"
+    a = (
+        "Non-urgent tickets receive a first response within 2 business days; "
+        "urgent Severity 1 tickets require a first response within 4 business hours."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_mixed_sla_wrong_urgent_window_never_supported()
+    test_closed_nonurgent_with_urgent_window_never_supported()
+    test_correct_mixed_sla_remains_supported()
+    print("ok: safety gates block unsafe SLA and exclusivity cases")
