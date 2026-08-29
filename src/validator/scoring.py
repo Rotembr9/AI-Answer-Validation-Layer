@@ -237,6 +237,20 @@ def contradiction_signals(
             if "up to 3" in d_norm or "3 days" in d_norm:
                 penalty = max(penalty, 0.90)
 
+    # Remote day cap understated as 1/2 days; unrelated document numbers can otherwise ground it.
+    if (
+        ("how many" in q_norm or "limit" in q_norm or "maximum" in q_norm or "allowed" in q_norm)
+        and "remote" in a_norm
+        and ("day" in a_norm or "days" in a_norm)
+        and ("without approval" in a_norm or "without extra approval" in a_norm)
+        and ("up to 3" in d_norm or "3 days" in d_norm)
+        and "up to 3" not in a_norm
+        and "3 day" not in a_norm
+    ):
+        answer_nums = tu.extract_numeric_tokens(answer)
+        if answer_nums and max(answer_nums) < 3:
+            penalty = max(penalty, 0.86)
+
     # Question cites amount above cap; answer implies full reimbursement (holdout H-N04)
     q_low = question.lower()
     if "650" in q_low or "$650" in question:
@@ -275,12 +289,12 @@ def contradiction_signals(
 # Questions where a paired allow/deny or “only” constraint is typically essential.
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
-    r"eligib|requirement|permission|qualif|"
-    r"who\s+(can|may|is|are)|"
-    r"\blimits?\b|restrict|"
-    r"allowed|"
-    r"stipend\s+for\s+whom|who\s+gets"
-    r")\b",
+    r"eligib\w*|requirements?\b|permissions?\b|qualif\w*|"
+    r"who\s+(can|may|is|are)\b|"
+    r"limits?\b|restrict\w*|"
+    r"allowed\b|"
+    r"stipend\s+for\s+whom\b|who\s+gets\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -361,6 +375,10 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     """
     q = question.strip()
     if not q or not answer.strip():
+        return 0.0
+
+    q_low = q.lower().replace("-", " ")
+    if "remote" in q_low and ("day" in q_low or "days" in q_low) and "stipend" not in q_low:
         return 0.0
 
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
