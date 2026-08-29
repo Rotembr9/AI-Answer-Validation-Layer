@@ -37,7 +37,25 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
-def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
+_NON_URGENT_RE = re.compile(r"\bnon\s*urgent\b|\bnonurgent\b", re.IGNORECASE)
+_URGENT_SLA_SCOPE_RE = re.compile(
+    r"\b(urgent|severity\s*1|priority\s*1|p1|level\s*1|critical)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_urgent_sla_scope(text: str) -> bool:
+    """Match urgent/P1 language without treating nonurgent as urgent."""
+    normalized = text.lower().replace("-", " ")
+    without_nonurgent = _NON_URGENT_RE.sub(" ", normalized)
+    return bool(_URGENT_SLA_SCOPE_RE.search(without_nonurgent))
+
+
+def _has_nonurgent_sla_scope(text: str) -> bool:
+    return bool(_NON_URGENT_RE.search(text.lower().replace("-", " ")))
+
+
+def supported_safety_flags(answer: str, document: str, question: str = "") -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
 
@@ -51,23 +69,22 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     a = answer.lower().replace("-", " ")
     d = document.lower().replace("-", " ")
+    q = question.lower().replace("-", " ")
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
+    urgent_scope = _has_urgent_sla_scope(a) or _has_urgent_sla_scope(q)
+    doc_has_urgent_hours = "4 business hours" in d and _has_urgent_sla_scope(d)
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
+    if urgent_scope and doc_has_urgent_hours:
         day_scale_response = (
             "business day" in a
             or "calendar day" in a
             or "full business day" in a
             or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
         )
-        if day_scale_response and "severity 1" in d:
+        if day_scale_response:
             extra = max(extra, 0.92)
             forbid = True
 
@@ -76,7 +93,7 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
+    if denial and (_has_urgent_sla_scope(a) or _has_urgent_sla_scope(q)):
         if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
             extra = max(extra, 0.76)
             forbid = True
@@ -201,8 +218,8 @@ def contradiction_signals(
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
     if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
+        not _has_nonurgent_sla_scope(a_norm)
+        and (_has_urgent_sla_scope(a_norm) or _has_urgent_sla_scope(q_norm))
         and "2 business day" in a_norm
         and "4 business hours" not in a_norm
     ):
@@ -210,7 +227,7 @@ def contradiction_signals(
             penalty = max(penalty, 0.88)
     # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
     if (
-        "non urgent" in a_norm
+        _has_nonurgent_sla_scope(a_norm)
         and "4 business hours" in a_norm
         and "2 business days" in d_norm
         and "not specified" not in a_norm
@@ -236,6 +253,20 @@ def contradiction_signals(
         if "remote" in a_norm and ("day" in a_norm or "days" in a_norm):
             if "up to 3" in d_norm or "3 days" in d_norm:
                 penalty = max(penalty, 0.90)
+
+    # Remote day cap understated as 1/2 days; unrelated document numbers can otherwise ground it.
+    if (
+        ("how many" in q_norm or "limit" in q_norm or "maximum" in q_norm or "allowed" in q_norm)
+        and "remote" in a_norm
+        and ("day" in a_norm or "days" in a_norm)
+        and ("without approval" in a_norm or "without extra approval" in a_norm)
+        and ("up to 3" in d_norm or "3 days" in d_norm)
+        and "up to 3" not in a_norm
+        and "3 day" not in a_norm
+    ):
+        answer_nums = tu.extract_numeric_tokens(answer)
+        if answer_nums and max(answer_nums) < 3:
+            penalty = max(penalty, 0.86)
 
     # Question cites amount above cap; answer implies full reimbursement (holdout H-N04)
     q_low = question.lower()
@@ -275,12 +306,12 @@ def contradiction_signals(
 # Questions where a paired allow/deny or “only” constraint is typically essential.
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
-    r"eligib|requirement|permission|qualif|"
-    r"who\s+(can|may|is|are)|"
-    r"\blimits?\b|restrict|"
-    r"allowed|"
-    r"stipend\s+for\s+whom|who\s+gets"
-    r")\b",
+    r"eligib\w*|requirements?\b|permissions?\b|qualif\w*|"
+    r"who\s+(can|may|is|are)\b|"
+    r"limits?\b|restrict\w*|"
+    r"allowed\b|"
+    r"stipend\s+for\s+whom\b|who\s+gets\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -361,6 +392,10 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     """
     q = question.strip()
     if not q or not answer.strip():
+        return 0.0
+
+    q_low = q.lower().replace("-", " ")
+    if "remote" in q_low and ("day" in q_low or "days" in q_low) and "stipend" not in q_low:
         return 0.0
 
     if not _EXCLUSIVITY_QUESTION_RE.search(q):

@@ -460,7 +460,9 @@ def build_markdown(
         for row in dr.failed:
             lines.append(f"#### {row['id']}")
             lines.append("")
-            lines.append(f"- **Expected:** {row['expected']}  \n- **Predicted:** {row['predicted']}  \n- **Confidence:** {row['confidence']}")
+            lines.append(f"- **Expected:** {row['expected']}")
+            lines.append(f"- **Predicted:** {row['predicted']}")
+            lines.append(f"- **Confidence:** {row['confidence']}")
             lines.append("")
             lines.append(f"**Question:** {row['question']}")
             lines.append("")
