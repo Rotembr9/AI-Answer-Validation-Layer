@@ -37,7 +37,62 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
-def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
+def _normalize_sla_text(text: str) -> str:
+    """Normalize SLA scope terms without changing the user-visible text."""
+    text = text.lower().replace("-", " ")
+    text = re.sub(r"\bnonurgent\b", "non urgent", text)
+    text = re.sub(r"\bp\s*1\b", "p1", text)
+    return " ".join(text.split())
+
+
+def _sla_claim_spans(answer: str) -> list[str]:
+    """Split mixed SLA answers so an urgent claim is not masked by a non-urgent one."""
+    spans = [
+        span.strip()
+        for span in re.split(
+            r"\s*(?:[;.!?]|\n)\s*|\s*,\s*(?=(?:non\s*-?\s*urgent|urgent|severity\s*1|priority\s*1|p\s*1)\b)",
+            answer,
+            flags=re.IGNORECASE,
+        )
+        if span.strip()
+    ]
+    return spans or [answer]
+
+
+def _has_nonurgent_scope(text: str) -> bool:
+    return bool(re.search(r"\bnon\s+urgent\b", _normalize_sla_text(text)))
+
+
+def _has_urgent_scope(text: str) -> bool:
+    norm = _normalize_sla_text(text)
+    norm = re.sub(r"\bnon\s+urgent\b", " ", norm)
+    return bool(re.search(r"\b(urgent|severity\s*1|priority\s*1|p1)\b", norm))
+
+
+def _has_day_scale_response(text: str) -> bool:
+    norm = _normalize_sla_text(text)
+    return bool(
+        "business day" in norm
+        or "calendar day" in norm
+        or "full business day" in norm
+        or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", norm)
+    )
+
+
+def _has_business_hour_response(text: str) -> bool:
+    norm = _normalize_sla_text(text)
+    return bool(re.search(r"\b(4|four)\s+business\s+hours?\b", norm))
+
+
+def _source_has_urgent_hour_sla(doc_norm: str) -> bool:
+    return _has_urgent_scope(doc_norm) and _has_business_hour_response(doc_norm)
+
+
+def _source_has_nonurgent_business_day_sla(doc_norm: str) -> bool:
+    return _has_nonurgent_scope(doc_norm) and "2 business days" in doc_norm
+
+
+def supported_safety_flags(answer: str, document: str, question: str = "") -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
 
@@ -49,26 +104,35 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _normalize_sla_text(answer)
+    d = _normalize_sla_text(document)
+    q_has_urgent = _has_urgent_scope(question)
+    q_has_nonurgent = _has_nonurgent_scope(question)
+    q_only_urgent = q_has_urgent and not q_has_nonurgent
+    q_only_nonurgent = q_has_nonurgent and not q_has_urgent
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
+    for raw_span in _sla_claim_spans(answer):
+        span_has_urgent = _has_urgent_scope(raw_span)
+        span_has_nonurgent = _has_nonurgent_scope(raw_span)
+        if not span_has_urgent and not span_has_nonurgent:
+            span_has_urgent = q_only_urgent
+            span_has_nonurgent = q_only_nonurgent
 
-    # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
+        # Day-scale response window for urgent / Severity-1 / Priority-1 vs document hours.
+        if span_has_urgent and _source_has_urgent_hour_sla(d) and _has_day_scale_response(raw_span):
             extra = max(extra, 0.92)
+            forbid = True
+
+        # Closed-up "nonurgent" should not borrow the urgent 4-hour SLA from the same line.
+        if (
+            span_has_nonurgent
+            and _has_business_hour_response(raw_span)
+            and _source_has_nonurgent_business_day_sla(d)
+            and not _has_day_scale_response(raw_span)
+        ):
+            extra = max(extra, 0.88)
             forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
@@ -76,8 +140,11 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+    if denial and _has_urgent_scope(a):
+        if (
+            ("window" in a or "timeframe" in a or "hours" in a)
+            and _source_has_urgent_hour_sla(d)
+        ):
             extra = max(extra, 0.76)
             forbid = True
 
