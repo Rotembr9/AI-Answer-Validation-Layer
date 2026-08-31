@@ -36,6 +36,48 @@ MAX_CONTRA_FOR_SUPPORTED = 0.34
 EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
+_SMALL_NUMBER_WORDS: dict[str, int] = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def _small_number(raw: str) -> int | None:
+    raw = raw.strip().lower()
+    if raw.isdigit():
+        return int(raw)
+    return _SMALL_NUMBER_WORDS.get(raw)
+
+
+def _business_day_count(text: str) -> int | None:
+    m = re.search(
+        r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+business\s+days?\b",
+        text,
+    )
+    if not m:
+        return None
+    return _small_number(m.group(1))
+
+
+def _remote_without_approval_cap(text: str) -> int | None:
+    m = re.search(
+        r"\bup\s+to\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+days?\s+"
+        r"(?:per\s+week\s+)?without\s+(?:extra\s+)?approval\b",
+        text,
+    )
+    if not m:
+        return None
+    return _small_number(m.group(1))
+
 
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
@@ -213,6 +255,7 @@ def contradiction_signals(
         "non urgent" in a_norm
         and "4 business hours" in a_norm
         and "2 business days" in d_norm
+        and _business_day_count(a_norm) != 2
         and "not specified" not in a_norm
     ):
         penalty = max(penalty, 0.88)
@@ -230,6 +273,23 @@ def contradiction_signals(
         if ("calendar day" in a_norm or "one calendar" in a_norm or "1 calendar" in a_norm):
             if "2 business days" in d_norm:
                 penalty = max(penalty, 0.88)
+        if (
+            "2 business days" in d_norm
+            and _business_day_count(a_norm) != 2
+            and "not specified" not in a_norm
+        ):
+            if "4 business hours" in a_norm:
+                penalty = max(penalty, 0.88)
+            ans_business_days = _business_day_count(a_norm)
+            if ans_business_days is not None:
+                penalty = max(penalty, 0.88)
+
+    # Remote work cap: incidental section/4th-day numbers must not ground a wrong cap.
+    if "remote" in a_norm and "without" in a_norm and "approval" in a_norm:
+        doc_cap = _remote_without_approval_cap(d_norm)
+        ans_cap = _remote_without_approval_cap(a_norm)
+        if doc_cap is not None and ans_cap is not None and ans_cap != doc_cap:
+            penalty = max(penalty, 0.88)
 
     # Remote day count far above policy cap (holdout H-N05; section numbers can fake “6” in doc)
     if re.search(r"\bsix\b", a_norm) or re.search(r"\b6\b", a_norm):
@@ -277,6 +337,7 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
     r"eligib|requirement|permission|qualif|"
     r"who\s+(can|may|is|are)|"
+    r"which\s+\w+\s+(get|gets|receive|qualif|are\s+eligib)|"
     r"\blimits?\b|restrict|"
     r"allowed|"
     r"stipend\s+for\s+whom|who\s+gets"
@@ -363,9 +424,6 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not q or not answer.strip():
         return 0.0
 
-    if not _EXCLUSIVITY_QUESTION_RE.search(q):
-        return 0.0
-
     doc_low = document.lower().replace("-", " ")
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
@@ -373,6 +431,14 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     ans_low = answer.lower().replace("-", " ")
 
     if not _answer_affirms_in_group_eligibility(ans_low):
+        return 0.0
+
+    q_low = q.lower().replace("-", " ")
+    benefit_scoped_question = re.search(
+        r"\b(stipend|reimbursement|equipment\s+reimbursement|benefit)\b",
+        q_low,
+    )
+    if not _EXCLUSIVITY_QUESTION_RE.search(q) and not benefit_scoped_question:
         return 0.0
 
     if _answer_covers_source_exclusivity(ans_low, doc_low):
