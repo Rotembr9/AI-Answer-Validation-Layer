@@ -54,9 +54,30 @@ def test_benefit_scoped_eligibility_omissions_are_not_supported() -> None:
     for question in (
         "What about the remote stipend?",
         "Which employees get the stipend?",
+        "Are contractors eligible?",
+        "Can contractors receive the stipend?",
+        "Is a contractor eligible?",
     ):
         r = validate(question, "Full-time employees are eligible.", _doc())
         assert r["verdict"] == "Partial", r
+
+
+def test_excludes_contractors_marks_omission_but_not_complete_answer() -> None:
+    doc = "The stipend excludes contractors. Full-time staff are eligible."
+
+    omitted = validate(
+        "Who is eligible for the remote work stipend?",
+        "Full-time employees are eligible.",
+        doc,
+    )
+    assert omitted["verdict"] == "Partial", omitted
+
+    complete = validate(
+        "Who is eligible for the remote work stipend?",
+        "Full-time staff are eligible; contractors are excluded.",
+        doc,
+    )
+    assert complete["verdict"] == "Supported", complete
 
 
 def test_non_urgent_sla_wrong_windows_are_not_supported() -> None:
@@ -83,6 +104,14 @@ def test_priority_urgent_day_scale_answers_are_not_supported() -> None:
     ):
         r = validate(question, answer, _doc())
         assert r["verdict"] == "Not Supported", r
+
+    priority_doc = "Urgent Priority 1 tickets require a first response within 4 business hours."
+    r = validate(
+        "What is the Priority 1 first-response window?",
+        "Priority 1 tickets require a first response within one full business day.",
+        priority_doc,
+    )
+    assert r["verdict"] == "Not Supported", r
 
 
 def test_remote_without_approval_day_count_mismatch_is_not_supported() -> None:
@@ -123,6 +152,7 @@ if __name__ == "__main__":
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
     test_benefit_scoped_eligibility_omissions_are_not_supported()
+    test_excludes_contractors_marks_omission_but_not_complete_answer()
     test_non_urgent_sla_wrong_windows_are_not_supported()
     test_priority_urgent_day_scale_answers_are_not_supported()
     test_remote_without_approval_day_count_mismatch_is_not_supported()

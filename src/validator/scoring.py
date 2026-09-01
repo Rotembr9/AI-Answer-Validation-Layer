@@ -402,9 +402,11 @@ def contradiction_signals(
 # Questions where a paired allow/deny or “only” constraint is typically essential.
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
-    r"eligib|requirement|permission|qualif|"
+    r"eligib\w*|requirement|permission|qualif\w*|"
     r"who\s+(can|may|is|are)|"
     r"which\s+(employees?|staff|workers?|people)\s+(can|may|get|receive|qualif|are|is)|"
+    r"(?:are|is|can|may)\s+(?:a\s+)?contractors?\s+(?:eligible|qualif\w*|receive|get)|"
+    r"contractors?\s+(?:eligible|qualif\w*|receive|get|stipend|reimburs\w*)|"
     r"\blimits?\b|restrict|"
     r"allowed|"
     r"stipend\s+for\s+whom|who\s+gets|"
@@ -426,6 +428,10 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
         return True
     if re.search(r"\bcannot\b", doc_low) and re.search(
         r"\b(eligible|receive|get|stipend|reimburs|remote\s+work)\b", doc_low
+    ):
+        return True
+    if re.search(r"\bexclud\w*\b", doc_low) and re.search(
+        r"\b(contractors?|part\s+time|eligible|stipend|reimburs\w*)\b", doc_low
     ):
         return True
     if "must not" in doc_low:
@@ -465,7 +471,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low
-        and re.search(r"\b(not\s+eligible|ineligible|cannot|excluded)\b", doc_low)
+        and re.search(r"\b(not\s+eligible|ineligible|cannot|exclud\w*)\b", doc_low)
     ):
         if "contractor" in ans_low and (
             "not" in ans_low
