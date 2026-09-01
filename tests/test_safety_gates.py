@@ -50,8 +50,111 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_benefit_scoped_eligibility_omissions_are_not_supported() -> None:
+    for question in (
+        "What about the remote stipend?",
+        "Which employees get the stipend?",
+        "Are contractors eligible?",
+        "Can contractors receive the stipend?",
+        "Is a contractor eligible?",
+    ):
+        r = validate(question, "Full-time employees are eligible.", _doc())
+        assert r["verdict"] == "Partial", r
+
+
+def test_excludes_contractors_marks_omission_but_not_complete_answer() -> None:
+    doc = "The stipend excludes contractors. Full-time staff are eligible."
+
+    omitted = validate(
+        "Who is eligible for the remote work stipend?",
+        "Full-time employees are eligible.",
+        doc,
+    )
+    assert omitted["verdict"] == "Partial", omitted
+
+    complete = validate(
+        "Who is eligible for the remote work stipend?",
+        "Full-time staff are eligible; contractors are excluded.",
+        doc,
+    )
+    assert complete["verdict"] == "Supported", complete
+
+
+def test_non_urgent_sla_wrong_windows_are_not_supported() -> None:
+    question = "What is the first-response SLA for non-urgent tickets?"
+    for answer in (
+        "Nonurgent tickets receive a first response within 4 business hours.",
+        "First response within 4 business hours.",
+        "First response within 3 business days.",
+    ):
+        r = validate(question, answer, _doc())
+        assert r["verdict"] == "Not Supported", r
+
+
+def test_priority_urgent_day_scale_answers_are_not_supported() -> None:
+    for question, answer in (
+        (
+            "What is the Priority 1 first-response window?",
+            "Priority 1 tickets receive a first response within one business day.",
+        ),
+        (
+            "What is the P1 first-response window?",
+            "P1 tickets receive a first response within one business day.",
+        ),
+    ):
+        r = validate(question, answer, _doc())
+        assert r["verdict"] == "Not Supported", r
+
+    priority_doc = "Urgent Priority 1 tickets require a first response within 4 business hours."
+    r = validate(
+        "What is the Priority 1 first-response window?",
+        "Priority 1 tickets require a first response within one full business day.",
+        priority_doc,
+    )
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_remote_without_approval_day_count_mismatch_is_not_supported() -> None:
+    question = "How many remote days are allowed each week without approval?"
+    for answer in (
+        "You can work remotely up to 4 days per week without extra approval.",
+        "You can work remotely up to 2 days per week without extra approval.",
+        "You can work remotely up to one day per week without extra approval.",
+    ):
+        r = validate(question, answer, _doc())
+        assert r["verdict"] == "Not Supported", r
+
+
+def test_mixed_sla_answer_is_checked_per_clause() -> None:
+    correct = validate(
+        "What are the support SLAs?",
+        (
+            "Non-urgent tickets receive a first response within 2 business days; "
+            "urgent Severity 1 tickets require a first response within 4 business hours."
+        ),
+        _doc(),
+    )
+    assert correct["verdict"] == "Supported", correct
+
+    wrong_urgent = validate(
+        "What are the support SLAs?",
+        (
+            "Non-urgent tickets receive a first response within 2 business days; "
+            "urgent Severity 1 tickets require a first response within one business day."
+        ),
+        _doc(),
+    )
+    assert wrong_urgent["verdict"] == "Not Supported", wrong_urgent
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_benefit_scoped_eligibility_omissions_are_not_supported()
+    test_excludes_contractors_marks_omission_but_not_complete_answer()
+    test_non_urgent_sla_wrong_windows_are_not_supported()
+    test_priority_urgent_day_scale_answers_are_not_supported()
+    test_remote_without_approval_day_count_mismatch_is_not_supported()
+    test_mixed_sla_answer_is_checked_per_clause()
+    print("ok: safety gates reject confirmed false-Supported regressions")

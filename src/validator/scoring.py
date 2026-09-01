@@ -37,6 +37,84 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+_SMALL_NUMBER_WORDS: dict[str, int] = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+_SMALL_NUMBER_PATTERN = r"(?:\d+|" + "|".join(_SMALL_NUMBER_WORDS) + r")"
+
+
+def _rule_text(text: str) -> str:
+    """Normalize policy prose for substring safety rules."""
+    text = text.lower().replace("-", " ")
+    return re.sub(r"\bnonurgent\b", "non urgent", text)
+
+
+def _small_number_value(raw: str) -> int | None:
+    raw = raw.lower()
+    if raw.isdigit():
+        return int(raw)
+    return _SMALL_NUMBER_WORDS.get(raw)
+
+
+def _policy_remote_without_approval_cap(doc_norm: str) -> int | None:
+    match = re.search(
+        rf"\bup\s+to\s+(?P<num>{_SMALL_NUMBER_PATTERN})\s+days?\s+per\s+week\s+without\s+(?:extra\s+)?approval\b",
+        doc_norm,
+    )
+    if not match:
+        return None
+    return _small_number_value(match.group("num"))
+
+
+def _claimed_remote_day_counts(text_norm: str) -> set[int]:
+    counts: set[int] = set()
+    for match in re.finditer(
+        rf"\b(?P<num>{_SMALL_NUMBER_PATTERN})\s+(?:remote\s+)?days?(?:\s+per\s+week)?\b",
+        text_norm,
+    ):
+        value = _small_number_value(match.group("num"))
+        if value is not None:
+            counts.add(value)
+    return counts
+
+
+def _policy_non_urgent_business_days(doc_norm: str) -> int | None:
+    match = re.search(
+        rf"\bnon\s+urgent\b[^.;]*?\b(?P<num>{_SMALL_NUMBER_PATTERN})\s+business\s+days?\b",
+        doc_norm,
+    )
+    if not match:
+        return None
+    return _small_number_value(match.group("num"))
+
+
+def _sla_claim_spans(text_norm: str) -> list[str]:
+    spans = re.split(
+        r"[.;]\s*|,\s*(?=(?:urgent|severity|priority|p1|non\s+urgent)\b)|"
+        r"\band\b\s*(?=(?:urgent|severity|priority|p1|non\s+urgent)\b)",
+        text_norm,
+    )
+    return [span.strip() for span in spans if span.strip()]
+
+
+def _has_urgent_sla_term(text_norm: str) -> bool:
+    return (
+        ("urgent" in text_norm and "non urgent" not in text_norm)
+        or "severity 1" in text_norm
+        or "priority 1" in text_norm
+        or re.search(r"\bp1\b", text_norm) is not None
+    )
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -49,8 +127,8 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _rule_text(answer)
+    d = _rule_text(document)
     extra = 0.0
     forbid = False
 
@@ -134,11 +212,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _rule_text(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    a_norm = _rule_text(answer)
+    d_norm = _rule_text(document)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -208,14 +286,16 @@ def contradiction_signals(
     ):
         if "4 business hours" in d_norm:
             penalty = max(penalty, 0.88)
-    # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
-        penalty = max(penalty, 0.88)
+    # Non-urgent tickets must not use the urgent SLA window. Scope this per span so
+    # mixed correct answers can mention both non-urgent days and urgent hours.
+    if "2 business days" in d_norm:
+        for span in _sla_claim_spans(a_norm):
+            if (
+                "non urgent" in span
+                and "4 business hours" in span
+                and "not specified" not in span
+            ):
+                penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
@@ -230,6 +310,53 @@ def contradiction_signals(
         if ("calendar day" in a_norm or "one calendar" in a_norm or "1 calendar" in a_norm):
             if "2 business days" in d_norm:
                 penalty = max(penalty, 0.88)
+        non_urgent_days = _policy_non_urgent_business_days(d_norm)
+        if non_urgent_days is not None and "not specified" not in a_norm:
+            if "business hours" in a_norm:
+                penalty = max(penalty, 0.88)
+            for match in re.finditer(
+                rf"\b(?P<num>{_SMALL_NUMBER_PATTERN})\s+business\s+days?\b",
+                a_norm,
+            ):
+                claimed_days = _small_number_value(match.group("num"))
+                if claimed_days is not None and claimed_days != non_urgent_days:
+                    penalty = max(penalty, 0.88)
+
+    # Priority/P1 urgent tickets share the urgent 4-business-hour SLA. Without this
+    # check, day-scale answers can borrow the unrelated non-urgent business-day number.
+    urgent_question = _has_urgent_sla_term(q_norm)
+    if (urgent_question or _has_urgent_sla_term(a_norm)) and "4 business hours" in d_norm:
+        for span in _sla_claim_spans(a_norm):
+            if not _has_urgent_sla_term(span) and not (
+                urgent_question and "non urgent" not in span
+            ):
+                continue
+            if re.search(
+                rf"\b(?P<num>{_SMALL_NUMBER_PATTERN})\s+(?:full\s+)?(?:calendar\s+)?(?:business\s+)?days?\b",
+                span,
+            ):
+                penalty = max(penalty, 0.92)
+
+    remote_cap = _policy_remote_without_approval_cap(d_norm)
+    asks_remote_no_approval = (
+        "remote" in q_norm
+        and (
+            "without approval" in q_norm
+            or "without extra approval" in q_norm
+            or "need no" in q_norm
+            or "no manager sign off" in q_norm
+            or "how many remote days" in q_norm
+        )
+    )
+    claims_remote_no_approval = (
+        "remote" in a_norm
+        and "day" in a_norm
+        and ("approval" in a_norm or "sign off" in a_norm or asks_remote_no_approval)
+    )
+    if remote_cap is not None and claims_remote_no_approval:
+        for claimed_days in _claimed_remote_day_counts(a_norm):
+            if claimed_days != remote_cap:
+                penalty = max(penalty, 0.90)
 
     # Remote day count far above policy cap (holdout H-N05; section numbers can fake “6” in doc)
     if re.search(r"\bsix\b", a_norm) or re.search(r"\b6\b", a_norm):
@@ -275,11 +402,16 @@ def contradiction_signals(
 # Questions where a paired allow/deny or “only” constraint is typically essential.
 _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
-    r"eligib|requirement|permission|qualif|"
+    r"eligib\w*|requirement|permission|qualif\w*|"
     r"who\s+(can|may|is|are)|"
+    r"which\s+(employees?|staff|workers?|people)\s+(can|may|get|receive|qualif|are|is)|"
+    r"(?:are|is|can|may)\s+(?:a\s+)?contractors?\s+(?:eligible|qualif\w*|receive|get)|"
+    r"contractors?\s+(?:eligible|qualif\w*|receive|get|stipend|reimburs\w*)|"
     r"\blimits?\b|restrict|"
     r"allowed|"
-    r"stipend\s+for\s+whom|who\s+gets"
+    r"stipend\s+for\s+whom|who\s+gets|"
+    r"remote\s+stipend|remote\s+work\s+stipend|home\s+office\s+stipend|"
+    r"equipment\s+reimbursement|annual\s+reimbursement"
     r")\b",
     re.IGNORECASE,
 )
@@ -296,6 +428,10 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
         return True
     if re.search(r"\bcannot\b", doc_low) and re.search(
         r"\b(eligible|receive|get|stipend|reimburs|remote\s+work)\b", doc_low
+    ):
+        return True
+    if re.search(r"\bexclud\w*\b", doc_low) and re.search(
+        r"\b(contractors?|part\s+time|eligible|stipend|reimburs\w*)\b", doc_low
     ):
         return True
     if "must not" in doc_low:
@@ -334,15 +470,20 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
+        "contractor" in doc_low
+        and re.search(r"\b(not\s+eligible|ineligible|cannot|exclud\w*)\b", doc_low)
     ):
         if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
+            "not" in ans_low
+            or "ineligible" in ans_low
+            or "cannot" in ans_low
+            or "excluded" in ans_low
+            or "no" in ans_low[:60]
         ):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
-    if "part-time" in doc_low and "not" in doc_low:
+    if ("part time" in doc_low or "part-time" in doc_low) and "not" in doc_low:
         if "part-time" in ans_low or "part time" in ans_low:
             return True
     if "are not allowed" in doc_low:
@@ -366,11 +507,11 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
+    doc_low = _rule_text(document)
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
 
-    ans_low = answer.lower().replace("-", " ")
+    ans_low = _rule_text(answer)
 
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
