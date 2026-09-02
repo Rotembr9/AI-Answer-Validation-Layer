@@ -71,8 +71,11 @@ def _day_scale_response(span: str) -> bool:
         "business day" in span
         or "calendar day" in span
         or "full business day" in span
+        or "working day" in span
+        or "work day" in span
+        or "workday" in span
         or re.search(
-            r"\b(one|two|three|four|1|2|3|4)\s+(full\s+)?(calendar\s+)?(business\s+)?days?\b",
+            r"\b(one|two|three|four|single|1|2|3|4)\s+(full\s+)?(calendar\s+)?(business\s+|working\s+|work\s+)?days?\b",
             span,
         )
     )
@@ -134,15 +137,22 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial_re = re.compile(
-        r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)"
+        r"\b("
+        r"(does not|don't|do not|doesn't|never)\s+"
+        r"(give|gives|list|lists|state|states|define|defines|specify|specifies|mention|mentions|identify|identifies)|"
+        r"(not|never)\s+(given|listed|stated|defined|specified|mentioned|identified)|"
+        r"unstated|omits?"
+        r")\b"
     )
-    if any(denial_re.search(span) and _urgent_scope(span) for span in spans):
-        if (
-            any(w in a for w in ("window", "timeframe", "hours", "time", "sla"))
-            and _doc_has_urgent_hour_sla(d)
-        ):
-            extra = max(extra, 0.76)
-            forbid = True
+    if _doc_has_urgent_hour_sla(d):
+        for span in spans:
+            if (
+                denial_re.search(span)
+                and _urgent_scope(span)
+                and any(w in span for w in ("window", "timeframe", "hours", "time", "sla", "response", "target"))
+            ):
+                extra = max(extra, 0.76)
+                forbid = True
 
     return forbid, extra
 
@@ -296,15 +306,23 @@ def contradiction_signals(
             if "up to 3" in d_norm or "3 days" in d_norm:
                 penalty = max(penalty, 0.90)
 
-    # Remote no-approval cap understated as one day; unrelated document "1"s can otherwise ground it.
-    if (
-        "remote" in q_norm
-        and "remote" in a_norm
+    remote_limit_question = (
+        ("remote" in q_norm or "remotely" in q_norm)
         and ("without approval" in q_norm or "without extra approval" in q_norm or "approval" in q_norm)
-        and re.search(r"\b(how many|limit|cap|max(?:imum)?|allowed)\b", q_norm)
         and ("up to 3" in d_norm or "3 days" in d_norm)
         and not re.search(r"\b(up to\s+)?3\s+days?\b", a_norm)
+        and not re.search(r"\b(no|not|cannot|can't|must\s+not|requires?|need)\b", a_norm)
+    )
+    # Remote no-approval cap mismatches; unrelated document "1"/"4th" tokens can otherwise ground them.
+    if (
+        remote_limit_question
+        and re.search(r"\b(how many|limit|cap|max(?:imum)?|allowed)\b", q_norm)
         and re.search(r"\b(one|1)\s+(remote\s+)?days?\b", a_norm)
+    ):
+        penalty = max(penalty, 0.86)
+    if (
+        remote_limit_question
+        and re.search(r"\b(up to\s+)?(four|4)\s+(remote\s+)?days?\b", a_norm)
     ):
         penalty = max(penalty, 0.86)
 
@@ -350,6 +368,7 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"who\s+(can|may|is|are)|"
     r"\blimits?\b|restrict|"
     r"allowed|"
+    r"stipend|reimburs|"
     r"stipend\s+for\s+whom|who\s+gets"
     r")\b",
     re.IGNORECASE,

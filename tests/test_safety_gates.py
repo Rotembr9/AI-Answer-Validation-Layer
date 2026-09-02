@@ -81,6 +81,37 @@ def test_understated_remote_approval_cap_never_supported() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_working_day_urgent_sla_never_supported() -> None:
+    q = "What first-response window applies to urgent tickets?"
+    a = "Severity 1 tickets require a first response within one working day."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_urgent_sla_omission_paraphrase_never_supported() -> None:
+    q = "Ticket priorities explained?"
+    a = (
+        "Non-urgent tickets get a first response in 2 business days; "
+        "the document never defines the urgent response time."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_four_remote_days_without_approval_never_supported() -> None:
+    q = "Can I work remotely 4 days a week without approval?"
+    a = "Yes, up to 4 days per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_stipend_employee_question_omission_is_partial() -> None:
+    q = "Is there a stipend for employees?"
+    a = "Full-time staff are eligible for the stipend."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Partial", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
@@ -89,4 +120,8 @@ if __name__ == "__main__":
     test_mixed_sla_wrong_urgent_clause_never_supported()
     test_closed_nonurgent_urgent_window_never_supported()
     test_understated_remote_approval_cap_never_supported()
+    test_working_day_urgent_sla_never_supported()
+    test_urgent_sla_omission_paraphrase_never_supported()
+    test_four_remote_days_without_approval_never_supported()
+    test_stipend_employee_question_omission_is_partial()
     print("ok: safety gates block targeted false-Supported regressions")
