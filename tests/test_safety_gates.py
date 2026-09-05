@@ -50,8 +50,31 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_contractor_exclusion_paraphrases_are_supported() -> None:
+    q = "Are contractors eligible for the annual equipment reimbursement?"
+    answers = [
+        "No, contractors are excluded from the reimbursement.",
+        "No, contractors cannot receive the annual reimbursement.",
+    ]
+    for answer in answers:
+        r = validate(q, answer, _doc())
+        assert r["verdict"] == "Supported", r
+
+
+def test_contractor_not_mentioned_is_not_supported() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time employees are eligible; contractor eligibility is not mentioned."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_contractor_exclusion_paraphrases_are_supported()
+    test_contractor_not_mentioned_is_not_supported()
+    print(
+        "ok: H-N08 and H-P10 are not Supported; "
+        "exclusivity and contractor paraphrase checks pass"
+    )

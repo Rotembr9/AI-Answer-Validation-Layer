@@ -119,6 +119,32 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    """True when the answer states contractor exclusion, not just uncertainty about it."""
+    if "contractor" not in ans_low:
+        return False
+    contractor_subject = r"\bcontractors?\b"
+    denied_status = (
+        r"(?:are|is|remain|be|being)?(?:\s+\w+ly)?\s*"
+        r"(?:not\s+(?:being\s+)?eligible|aren't\s+eligible|"
+        r"ineligible|excluded|not\s+covered|not\s+entitled|not\s+allowed)"
+    )
+    denied_action = (
+        r"(?:cannot|can't|can\s+not|do\s+not|don't|does\s+not|doesn't)\s+"
+        r"(?:receive|get|qualify|claim|access|use|obtain)"
+    )
+    return any(
+        re.search(pattern, ans_low)
+        for pattern in (
+            rf"{contractor_subject}\s+{denied_status}\b",
+            rf"{contractor_subject}\s+{denied_action}\b",
+            rf"\b(?:does\s+not|doesn't|do\s+not|don't|cannot|can't|can\s+not)\s+"
+            rf"(?:apply|extend)\s+to\s+{contractor_subject}",
+            rf"\bnot\s+(?:available|open|offered)\s+to\s+{contractor_subject}",
+        )
+    )
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -136,6 +162,7 @@ def contradiction_signals(
     joined_e = " ".join(e_tokens).lower()
     q_norm = question.lower().replace("-", " ")
     doc_low = document.lower()
+    ans_low = answer.lower().replace("-", " ")
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
     d_norm = doc_low.replace("-", " ")
@@ -157,8 +184,8 @@ def contradiction_signals(
             penalty = max(penalty, 0.9)
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
-    if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+    if "contractor" in ans_low:
+        if "contractors are not eligible" in doc_low and not _answer_excludes_contractors(ans_low):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -336,9 +363,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_excludes_contractors(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
