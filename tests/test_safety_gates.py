@@ -68,13 +68,56 @@ def test_contractor_not_mentioned_is_not_supported() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_understated_remote_no_approval_caps_never_supported() -> None:
+    q = "How many remote days without approval?"
+    answers = [
+        "You may work remotely one day per week without prior approval.",
+        "You may work remotely two days per week without prior approval.",
+    ]
+    for answer in answers:
+        r = validate(q, answer, _doc())
+        assert r["verdict"] != "Supported", r
+
+
+def test_urgent_day_scale_without_severity_1_never_supported() -> None:
+    q = "What first-response window applies to urgent tickets?"
+    a = "Urgent tickets get a first response within one full business day."
+    doc = (
+        "Support response time: Non-urgent tickets receive a first response within "
+        "2 business days; urgent tickets require a first response within 4 business hours."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_mixed_sla_wrong_urgent_clause_never_supported() -> None:
+    q = "What are the ticket SLAs?"
+    a = (
+        "Non-urgent tickets receive a first response within 2 business days; "
+        "urgent Severity 1 tickets require a first response within one full business day."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_closed_nonurgent_urgent_window_never_supported() -> None:
+    q = "What is the SLA for nonurgent tickets?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
     test_contractor_exclusion_paraphrases_are_supported()
     test_contractor_not_mentioned_is_not_supported()
+    test_understated_remote_no_approval_caps_never_supported()
+    test_urgent_day_scale_without_severity_1_never_supported()
+    test_mixed_sla_wrong_urgent_clause_never_supported()
+    test_closed_nonurgent_urgent_window_never_supported()
     print(
         "ok: H-N08 and H-P10 are not Supported; "
-        "exclusivity and contractor paraphrase checks pass"
+        "exclusivity, contractor, remote-cap, and SLA checks pass"
     )
