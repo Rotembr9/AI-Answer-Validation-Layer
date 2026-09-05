@@ -20,6 +20,17 @@ from validator import load_examples_json, validate  # noqa: E402
 LABELS = ("Supported", "Not Supported", "Partial")
 
 
+def supported_precision(expected: list[str], predicted: list[str]) -> float:
+    """Precision for the risky verdict: of predicted Supported rows, how many are gold Supported."""
+    predicted_supported = [
+        exp for exp, pred in zip(expected, predicted) if pred == "Supported"
+    ]
+    if not predicted_supported:
+        return 0.0
+    true_supported = sum(1 for exp in predicted_supported if exp == "Supported")
+    return true_supported / len(predicted_supported)
+
+
 def confusion_matrix(
     expected: list[str], predicted: list[str]
 ) -> dict[tuple[str, str], int]:
@@ -65,7 +76,6 @@ def main() -> None:
     predicted: list[str] = []
     failed: list[str] = []
 
-    supported_tp = supported_fp = 0
     ns_actual = ns_tp = 0
 
     for ex in examples:
@@ -77,11 +87,6 @@ def main() -> None:
         if pred != exp:
             failed.append(f"  {ex['id']}: expected {exp}, got {pred} (conf={r['confidence']})")
 
-        if exp == "Supported":
-            if pred == "Supported":
-                supported_tp += 1
-            elif pred != "Supported":
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -91,7 +96,7 @@ def main() -> None:
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
 
-    supported_precision = supported_tp / (supported_tp + supported_fp) if (supported_tp + supported_fp) else 0.0
+    supported_precision_value = supported_precision(expected, predicted)
     ns_recall = ns_tp / ns_actual if ns_actual else 0.0
 
     unsafe_supported = sum(
@@ -104,7 +109,7 @@ def main() -> None:
     print("Total examples:", n)
     print("Correct:", correct)
     print(f"Accuracy: {acc:.4f}")
-    print(f"Supported precision: {supported_precision:.4f}")
+    print(f"Supported precision: {supported_precision_value:.4f}")
     print(f"Not Supported recall: {ns_recall:.4f}")
     print(
         f"Non-Supported truth -> Supported (strict, should be 0): {ns_mistaken_as_supported}"
