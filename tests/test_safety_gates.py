@@ -41,6 +41,26 @@ def test_h_p10_never_supported() -> None:
     assert r["verdict"] != "Supported", r
 
 
+def test_mixed_sla_wrong_urgent_clause_never_supported() -> None:
+    q = "What are the support SLAs?"
+    a = (
+        "Non-urgent tickets receive a first response within 2 business days; "
+        "urgent Severity 1 tickets receive a first response within one full business day."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_mixed_sla_correct_clauses_can_be_supported() -> None:
+    q = "What are the support SLAs?"
+    a = (
+        "Non-urgent tickets receive a first response within 2 business days; "
+        "urgent Severity 1 tickets require a first response within 4 business hours."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 def test_incomplete_eligibility_is_partial_not_supported() -> None:
     """Positive-only eligibility answer omits doc exclusivity → Partial (not Supported)."""
     q = "Who is eligible for the remote work stipend?"
@@ -53,5 +73,7 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
+    test_mixed_sla_wrong_urgent_clause_never_supported()
+    test_mixed_sla_correct_clauses_can_be_supported()
     test_incomplete_eligibility_is_partial_not_supported()
     print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")

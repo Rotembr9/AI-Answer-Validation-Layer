@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-03 08:54:50",
+  "generated_at": "2026-09-06 10:06:02",
   "datasets": {
     "examples.json": {
       "n": 30,
@@ -11,8 +11,8 @@
     },
     "examples_holdout.json": {
       "n": 30,
-      "accuracy": 0.8,
-      "supported_precision": 0.7,
+      "accuracy": 0.833333,
+      "supported_precision": 1.0,
       "ns_recall": 1.0,
       "strict_false_supported": 0,
       "any_false_supported": 0
