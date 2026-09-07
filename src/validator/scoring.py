@@ -366,6 +366,9 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
     r"\b("
     r"eligib|requirement|permission|qualif|"
     r"who\s+(can|may|is|are)|"
+    r"(can|may)\s+(anyone|everyone)\s+(receive|get|qualif|be\s+eligible).*"
+    r"\b(stipend|reimburs|benefit)\b|"
+    r"(anyone|everyone)\b.*\b(stipend|reimburs|benefit)\b|"
     r"\blimits?\b|restrict|"
     r"allowed|"
     r"stipend\s+for\s+whom|who\s+gets"
@@ -440,7 +443,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    top_evidence_line: str | None = None,
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -455,8 +463,8 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    source_low = (top_evidence_line or document).lower().replace("-", " ")
+    if not _source_has_exclusivity_marker(source_low):
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
@@ -464,7 +472,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
 
-    if _answer_covers_source_exclusivity(ans_low, doc_low):
+    if _answer_covers_source_exclusivity(ans_low, source_low):
         return 0.0
 
     # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band

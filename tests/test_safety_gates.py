@@ -58,6 +58,18 @@ def test_priority_one_day_scale_is_not_supported() -> None:
     assert r["verdict"] == "Not Supported", r
 
 
+def test_urgent_day_scale_without_severity_one_doc_is_not_supported() -> None:
+    q = "What first-response window applies to urgent tickets?"
+    a = "Urgent tickets get a first response within one full business day."
+    doc = (
+        "Support response time: Non-urgent tickets receive a first response "
+        "within 2 business days; urgent tickets require a first response "
+        "within 4 business hours."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Not Supported", r
+
+
 def test_closed_nonurgent_cannot_borrow_urgent_hours() -> None:
     q = "How quickly must nonurgent tickets get a first reply?"
     a = "Nonurgent tickets receive a first response within 4 business hours."
@@ -104,14 +116,31 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_anyone_benefit_question_omission_is_partial() -> None:
+    q = "Can anyone receive the remote stipend?"
+    a = "Yes. Full-time staff are eligible for the remote stipend."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Partial", r
+
+
+def test_unrelated_remote_permission_not_penalized_by_stipend_exclusion() -> None:
+    q = "Are employees allowed to work remotely up to 3 days without approval?"
+    a = "Employees may work remotely up to 3 days per week without extra approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_mixed_sla_wrong_urgent_day_is_not_supported()
     test_priority_one_day_scale_is_not_supported()
+    test_urgent_day_scale_without_severity_one_doc_is_not_supported()
     test_closed_nonurgent_cannot_borrow_urgent_hours()
     test_correct_mixed_slas_remain_supported()
     test_correct_respectively_slas_remain_supported()
     test_wrong_respectively_slas_are_not_supported()
     test_incomplete_eligibility_is_partial_not_supported()
+    test_anyone_benefit_question_omission_is_partial()
+    test_unrelated_remote_permission_not_penalized_by_stipend_exclusion()
     print("ok: safety gate regressions passed")
