@@ -65,7 +65,7 @@ def main() -> None:
     predicted: list[str] = []
     failed: list[str] = []
 
-    supported_tp = supported_fp = 0
+    supported_tp = supported_predicted = 0
     ns_actual = ns_tp = 0
 
     for ex in examples:
@@ -77,11 +77,11 @@ def main() -> None:
         if pred != exp:
             failed.append(f"  {ex['id']}: expected {exp}, got {pred} (conf={r['confidence']})")
 
+        if pred == "Supported":
+            supported_predicted += 1
         if exp == "Supported":
             if pred == "Supported":
                 supported_tp += 1
-            elif pred != "Supported":
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -91,7 +91,7 @@ def main() -> None:
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
 
-    supported_precision = supported_tp / (supported_tp + supported_fp) if (supported_tp + supported_fp) else 0.0
+    supported_precision = supported_tp / supported_predicted if supported_predicted else 0.0
     ns_recall = ns_tp / ns_actual if ns_actual else 0.0
 
     unsafe_supported = sum(
