@@ -20,7 +20,7 @@
 </head>
 <body>
   <h1>AI Answer Validation — Evaluation report</h1>
-  <p><em>Generated 2026-05-03 08:54:50 UTC</em></p>
+  <p><em>Generated 2026-09-09 10:03:45 UTC</em></p>
 
   <h2>A. Executive summary</h2>
   <p class="ok"><strong>Overall:</strong> Healthy for a cautious demo — no false Supported on negative gold labels.</p>
@@ -42,7 +42,7 @@
   &quot;examples_holdout.json&quot;: {
     &quot;n&quot;: 30,
     &quot;accuracy&quot;: 0.8,
-    &quot;supported_precision&quot;: 0.7,
+    &quot;supported_precision&quot;: 1.0,
     &quot;ns_recall&quot;: 1.0,
     &quot;strict_false_supported&quot;: 0,
     &quot;any_false_supported&quot;: 0
@@ -68,7 +68,7 @@
         <table class="metrics">
           <tr><td>Total examples</td><td>30</td></tr>
           <tr><td>Accuracy</td><td>0.8000 (24/30)</td></tr>
-          <tr><td>Supported precision</td><td>0.7000</td></tr>
+          <tr><td>Supported precision</td><td>1.0000</td></tr>
           <tr><td>Not Supported recall</td><td>1.0000</td></tr>
           <tr><td>False Supported (strict)</td><td class="ok">0</td></tr>
           <tr><td>False Supported (any)</td><td class="ok">0</td></tr>
@@ -108,6 +108,6 @@
   <p><strong>No high-risk rows.</strong> No Supported predictions where gold was Not Supported or Partial.</p>
 
   <h2>E. Plain-English interpretation</h2>
-  <p>**What is working well:** The validator did not label any example whose correct label is *Not Supported* or *Partial* as *Supported* on either dataset. That is the most important safety signal for a demo.</p><p>**Accuracy:** On the main labeled set (examples.json), **30/30** (100.0%) examples match the gold label. On the holdout set (examples_holdout.json), **24/30** (80.0%) match.</p><p>**Supported precision** (when the model says *Supported*, how often that is correct) is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. That is conservative and safer than false *Supported*, but worth improving for UX.</p><p>**What to improve next:** Improve recall on clearly false numeric or SLA claims without raising false *Supported* rates; optionally add clearer explanations in the UI when the verdict is *Partial*.</p>
+  <p>**What is working well:** The validator did not label any example whose correct label is *Not Supported* or *Partial* as *Supported* on either dataset. That is the most important safety signal for a demo.</p><p>**Accuracy:** On the main labeled set (examples.json), **30/30** (100.0%) examples match the gold label. On the holdout set (examples_holdout.json), **24/30** (80.0%) match.</p><p>**What to improve next:** Improve recall on clearly false numeric or SLA claims without raising false *Supported* rates; optionally add clearer explanations in the UI when the verdict is *Partial*.</p>
 </body>
 </html>

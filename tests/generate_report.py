@@ -74,7 +74,7 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     source_document, examples = load_examples_json(path)
     expected: list[str] = []
     predicted: list[str] = []
-    supported_tp = supported_fp = 0
+    supported_tp = supported_predicted = 0
     ns_actual = ns_tp = 0
     rows: list[dict] = []
     for ex in examples:
@@ -95,11 +95,11 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
+        if pred == "Supported":
+            supported_predicted += 1
         if exp == "Supported":
             if pred == "Supported":
                 supported_tp += 1
-            else:
-                supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1
             if pred == "Not Supported":
@@ -109,8 +109,8 @@ def _run_dataset(rel_path: str) -> DatasetResult:
     correct = sum(1 for e, p in zip(expected, predicted) if e == p)
     acc = correct / n if n else 0.0
     sp = (
-        supported_tp / (supported_tp + supported_fp)
-        if (supported_tp + supported_fp)
+        supported_tp / supported_predicted
+        if supported_predicted
         else 0.0
     )
     ns_r = ns_tp / ns_actual if ns_actual else 0.0
@@ -321,8 +321,8 @@ def _plain_english(core: DatasetResult, hold: DatasetResult) -> str:
     if core.supported_precision < 0.85 or hold.supported_precision < 0.85:
         parts.append(
             "**Supported precision** (when the model says *Supported*, how often that is correct) "
-            "is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. "
-            "That is conservative and safer than false *Supported*, but worth improving for UX."
+            "is moderate on one or both sets, which means some answers may be incorrectly accepted "
+            "as fully supported. Review those rows before using the tool in a demo."
         )
 
     if hold.ns_recall < 0.7:
