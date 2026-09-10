@@ -37,6 +37,52 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _policy_norm(text: str) -> str:
+    """Normalize policy phrasing for substring safety gates."""
+    text = text.lower().replace("-", " ")
+    text = re.sub(r"\bnonurgent\b", "non urgent", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Split mixed answers so a correct clause cannot hide a wrong neighboring clause."""
+    parts = re.split(
+        r"(?:[;\n.]|,\s*(?:while|whereas|but)\b|\b(?:while|whereas|but)\b)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return [p.strip() for p in parts if p.strip()]
+
+
+_DAY_SCALE_RE = re.compile(
+    r"\b("
+    r"business\s+day|calendar\s+day|full\s+business\s+day|"
+    r"(?:one|two|three|1|2|3)\s+(?:full\s+)?(?:calendar\s+)?(?:business\s+)?days?"
+    r")\b"
+)
+_NEGATION_NEAR_RE = re.compile(
+    r"\b(no|not|never|don't|do not|doesn't|does not|isn't|is not|aren't|are not)\b"
+)
+
+
+def _has_unnegated(pattern: re.Pattern[str], text: str) -> bool:
+    for match in pattern.finditer(text):
+        prefix = text[max(0, match.start() - 36) : match.start()]
+        if not _NEGATION_NEAR_RE.search(prefix):
+            return True
+    return False
+
+
+def _targets_non_urgent(text: str) -> bool:
+    return bool(re.search(r"\bnon\s+urgent\b", text))
+
+
+def _targets_urgent(text: str) -> bool:
+    if re.search(r"\b(severity\s+1|priority\s+1|p1)\b", text):
+        return True
+    return bool(re.search(r"\burgent\b", text)) and not _targets_non_urgent(text)
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -49,26 +95,24 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _policy_norm(answer)
+    d = _policy_norm(document)
+    spans = [_policy_norm(span) for span in _claim_spans(answer)] or [a]
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
-
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
+    if ("4 business hours" in d or "business hours" in d) and (
+        "severity 1" in d or "urgent" in d
+    ):
+        if any(_targets_urgent(span) and _has_unnegated(_DAY_SCALE_RE, span) for span in spans):
             extra = max(extra, 0.92)
+            forbid = True
+
+    # Non-urgent tickets must not borrow the urgent 4-business-hour SLA.
+    if "2 business days" in d:
+        if any(_targets_non_urgent(span) and "4 business hours" in span for span in spans):
+            extra = max(extra, 0.88)
             forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
@@ -76,8 +120,14 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+    if denial and any(_targets_urgent(span) for span in spans):
+        if (
+            "window" in a
+            or "timeframe" in a
+            or "hours" in a
+            or "sla" in a
+            or "response time" in a
+        ) and "4 business hours" in d:
             extra = max(extra, 0.76)
             forbid = True
 
@@ -134,11 +184,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _policy_norm(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    a_norm = _policy_norm(answer)
+    d_norm = _policy_norm(document)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -186,6 +236,14 @@ def contradiction_signals(
     if ("fourth" in joined_a or "4th" in joined_a) and "no timing" in joined_a:
         if "before that week" in doc_low or "before that week begins" in doc_low:
             penalty = max(penalty, 0.58)
+    if (
+        ("fourth" in a_norm or "4th" in a_norm or "additional" in a_norm or "extra" in a_norm)
+        and "remote" in a_norm
+        and "approval" in a_norm
+    ):
+        if re.search(r"\b(after|once|when)\s+(that|the)?\s*week\s+begins\b", a_norm):
+            if "before that week begins" in d_norm:
+                penalty = max(penalty, 0.88)
     # Extra remote day without approval (policy requires approval for 4th day)
     if "fourth" in joined_a or "4th" in joined_a:
         if "without" in joined_a and "approval" in joined_a and "not" not in joined_a:
