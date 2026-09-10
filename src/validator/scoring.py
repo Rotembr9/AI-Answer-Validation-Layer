@@ -189,6 +189,7 @@ def contradiction_signals(
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = _policy_norm(answer)
     d_norm = _policy_norm(document)
+    spans = [_policy_norm(span) for span in _claim_spans(answer)] or [a_norm]
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -258,21 +259,21 @@ def contradiction_signals(
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
+    if any(
+        _targets_urgent(span)
+        and "2 business day" in span
+        and "4 business hours" not in span
+        for span in spans
     ):
         if "4 business hours" in d_norm:
             penalty = max(penalty, 0.88)
     # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
+    if any(
+        _targets_non_urgent(span)
+        and "4 business hours" in span
+        and "not specified" not in span
+        for span in spans
+    ) and "2 business days" in d_norm:
         penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
