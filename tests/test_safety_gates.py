@@ -50,8 +50,21 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_unrelated_exclusion_does_not_downgrade_supported_remote_answer() -> None:
+    """Omission penalties must be scoped to the matched policy line."""
+    q = "Who can work remotely without manager approval?"
+    a = "Employees may work remotely up to 3 days per week without manager approval."
+    doc = (
+        "Remote work: Employees may work remotely up to 3 days per week without manager approval.\n"
+        "Stipend: Full-time staff only; contractors are not eligible for reimbursement."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_unrelated_exclusion_does_not_downgrade_supported_remote_answer()
+    print("ok: safety gates passed")
