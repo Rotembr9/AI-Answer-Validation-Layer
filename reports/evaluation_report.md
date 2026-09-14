@@ -1,6 +1,6 @@
 # AI Answer Validation — Evaluation report
 
-*Generated: 2026-05-03 08:54:50 (UTC)*
+*Generated: 2026-09-14 10:07:14 (UTC)*
 
 ---
 
@@ -108,17 +108,17 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 | H-S06 | Supported | Partial | 0.483 | What risk is mentioned if I do not return my company laptop after leaving? |
 | H-S09 | Supported | Partial | 0.486 | How long do I have after my job ends to send back the company laptop? |
 | H-S10 | Supported | Partial | 0.496 | Are purchases made in January reported in January? |
-| H-P03 | Partial | Not Supported | 0.132 | What are the support SLAs? |
 | H-P06 | Partial | Not Supported | 0.000 | Expense timing for Q1 purchases? |
 | H-P07 | Partial | Not Supported | 0.138 | Who gets remote stipend money? |
+| H-P10 | Partial | Not Supported | 0.128 | Ticket priorities explained? |
 
 <details>
 <summary>Full detail (question, answer, reason, evidence)</summary>
 
 #### H-S06
 
-- **Expected:** Supported  
-- **Predicted:** Partial  
+- **Expected:** Supported
+- **Predicted:** Partial
 - **Confidence:** 0.483
 
 **Question:** What risk is mentioned if I do not return my company laptop after leaving?
@@ -134,8 +134,8 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 
 #### H-S09
 
-- **Expected:** Supported  
-- **Predicted:** Partial  
+- **Expected:** Supported
+- **Predicted:** Partial
 - **Confidence:** 0.486
 
 **Question:** How long do I have after my job ends to send back the company laptop?
@@ -151,8 +151,8 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 
 #### H-S10
 
-- **Expected:** Supported  
-- **Predicted:** Partial  
+- **Expected:** Supported
+- **Predicted:** Partial
 - **Confidence:** 0.496
 
 **Question:** Are purchases made in January reported in January?
@@ -166,27 +166,10 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 2. REMOTE WORK AND EXPENSE POLICY (Effective January 1, 2025)
 3. 6. Equipment: Company laptops remain company property and must be returned within 10 business days after employment ends; failure to return may result in payroll deduction up to the replacement cost.
 
-#### H-P03
-
-- **Expected:** Partial  
-- **Predicted:** Not Supported  
-- **Confidence:** 0.132
-
-**Question:** What are the support SLAs?
-
-**Answer:** Severity 1 urgent tickets get 4 business hours; the policy does not define any timeframe for non-urgent tickets.
-
-**Reason (model):** Strong contradiction or unreliable numeric claims versus the source.
-
-**Evidence lines:**
-1. 5. Support response time: Non-urgent tickets receive a first response within 2 business days; urgent (Severity 1) tickets require a first response within 4 business hours.
-2. 4. Submission deadline: Expense reports must be submitted by the 15th day of the month following the purchase. Reports received after the 15th are denied for that purchase period.
-3. 1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.
-
 #### H-P06
 
-- **Expected:** Partial  
-- **Predicted:** Not Supported  
+- **Expected:** Partial
+- **Predicted:** Not Supported
 - **Confidence:** 0.0
 
 **Question:** Expense timing for Q1 purchases?
@@ -202,8 +185,8 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 
 #### H-P07
 
-- **Expected:** Partial  
-- **Predicted:** Not Supported  
+- **Expected:** Partial
+- **Predicted:** Not Supported
 - **Confidence:** 0.138
 
 **Question:** Who gets remote stipend money?
@@ -216,6 +199,23 @@ Criteria used: zero predictions of *Supported* when the reference label is *Not 
 1. 1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.
 2. REMOTE WORK AND EXPENSE POLICY (Effective January 1, 2025)
 3. 3. Annual home-office stipend: Up to $500 per calendar year for approved expenses; amounts above $500 are not reimbursed.
+
+#### H-P10
+
+- **Expected:** Partial
+- **Predicted:** Not Supported
+- **Confidence:** 0.128
+
+**Question:** Ticket priorities explained?
+
+**Answer:** Non-urgent tickets get a first response in 2 business days; urgent Severity 1 tickets are faster but the doc does not give the urgent window.
+
+**Reason (model):** Strong contradiction or unreliable numeric claims versus the source.
+
+**Evidence lines:**
+1. 5. Support response time: Non-urgent tickets receive a first response within 2 business days; urgent (Severity 1) tickets require a first response within 4 business hours.
+2. 4. Submission deadline: Expense reports must be submitted by the 15th day of the month following the purchase. Reports received after the 15th are denied for that purchase period.
+3. 1. Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend or annual equipment reimbursement.
 
 </details>
 
