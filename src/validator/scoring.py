@@ -37,6 +37,94 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _norm(s: str) -> str:
+    return s.lower().replace("-", " ")
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Split mixed answers so one correct clause cannot mask another wrong clause."""
+    spans = [
+        p.strip()
+        for p in re.split(r"[.;\n]+|\bbut\b|\bhowever\b", text)
+        if p.strip()
+    ]
+    return spans or [text]
+
+
+def _has_urgent_scope(text: str) -> bool:
+    t = _norm(text)
+    without_nonurgent = re.sub(r"\bnon\s+urgent\b|\bnonurgent\b", "", t)
+    return bool(
+        re.search(r"\burgent\b", without_nonurgent)
+        or re.search(r"\bseverity\s*1\b", t)
+        or re.search(r"\bpriority\s*1\b", t)
+        or re.search(r"\bp\s*1\b", t)
+    )
+
+
+def _has_day_scale_response(text: str) -> bool:
+    t = _norm(text)
+    return bool(
+        "business day" in t
+        or "calendar day" in t
+        or "full business day" in t
+        or re.search(
+            r"\b(one|two|three|1|2|3)\s+"
+            r"(full\s+)?(calendar\s+)?(business\s+)?days?\b",
+            t,
+        )
+    )
+
+
+def _document_has_urgent_hour_sla(document: str) -> bool:
+    d = _norm(document)
+    if "business hour" not in d:
+        return False
+    for span in _claim_spans(document):
+        s = _norm(span)
+        if _has_urgent_scope(s) and "business hour" in s:
+            return True
+    return False
+
+
+def _remote_no_approval_day_cap(text: str) -> int | None:
+    t = _norm(text)
+    if "remote" not in t or "day" not in t:
+        return None
+    if not (
+        "without approval" in t
+        or "without extra approval" in t
+        or "no approval" in t
+        or "no sign off" in t
+        or "no manager sign off" in t
+        or "need no" in t
+        or "requires no" in t
+    ):
+        return None
+
+    number = r"(?P<n>one|two|three|four|five|six|1|2|3|4|5|6)"
+    patterns = (
+        rf"\bup to\s+{number}\s+(?:remote\s+)?days?\s+per\s+week\b",
+        rf"\b{number}\s+(?:remote\s+)?days?\s+per\s+week\b",
+        rf"\bremote(?:ly)?\s+(?:up to\s+)?{number}\s+days?\s+per\s+week\b",
+    )
+    word_to_int = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+    }
+    for pat in patterns:
+        m = re.search(pat, t)
+        if not m:
+            continue
+        raw = m.group("n")
+        return int(raw) if raw.isdigit() else word_to_int[raw]
+    return None
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -49,35 +137,37 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
-
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
+    if _document_has_urgent_hour_sla(document):
+        for span in _claim_spans(answer):
+            if _has_urgent_scope(span) and _has_day_scale_response(span):
+                extra = max(extra, 0.92)
+                forbid = True
+
+    doc_remote_cap = _remote_no_approval_day_cap(document)
+    if doc_remote_cap is not None:
+        answer_remote_cap = _remote_no_approval_day_cap(answer)
+        if answer_remote_cap is not None and answer_remote_cap != doc_remote_cap:
             extra = max(extra, 0.92)
             forbid = True
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial = re.search(
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
-        a,
+        _norm(answer),
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
+    if denial and _has_urgent_scope(answer):
+        a = _norm(answer)
+        if (
+            "window" in a
+            or "timeframe" in a
+            or "hours" in a
+            or "sla" in a
+            or "response time" in a
+        ) and _document_has_urgent_hour_sla(document):
             extra = max(extra, 0.76)
             forbid = True
 
@@ -351,9 +441,9 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(question: str, answer: str, evidence_text: str) -> float:
     """
-    Eligibility-style questions + exclusivity-marked source + positive-only answer that
+    Eligibility-style questions + exclusivity-marked evidence + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
     so verdict is Partial (not Supported) when evidence still aligns.
 
@@ -366,7 +456,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
+    doc_low = evidence_text.lower().replace("-", " ")
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
 
