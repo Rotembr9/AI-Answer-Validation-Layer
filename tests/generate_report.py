@@ -95,8 +95,8 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
+        if pred == "Supported":
+            if exp == "Supported":
                 supported_tp += 1
             else:
                 supported_fp += 1
@@ -321,8 +321,8 @@ def _plain_english(core: DatasetResult, hold: DatasetResult) -> str:
     if core.supported_precision < 0.85 or hold.supported_precision < 0.85:
         parts.append(
             "**Supported precision** (when the model says *Supported*, how often that is correct) "
-            "is moderate on one or both sets — many gold *Supported* rows may show as *Partial* instead. "
-            "That is conservative and safer than false *Supported*, but worth improving for UX."
+            "is below target on one or both sets, meaning some non-*Supported* rows were marked "
+            "*Supported*. Review those high-risk rows before relying on the tool."
         )
 
     if hold.ns_recall < 0.7:

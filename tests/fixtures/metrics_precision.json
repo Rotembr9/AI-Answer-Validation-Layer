@@ -1,0 +1,17 @@
+{
+  "source_document": "Cats may sit. Dogs may run.",
+  "examples": [
+    {
+      "id": "M-S01",
+      "question": "Can cats sit?",
+      "answer": "Cats may sit.",
+      "expected_label": "Supported"
+    },
+    {
+      "id": "M-P01",
+      "question": "What is partially covered?",
+      "answer": "Cats may sit.",
+      "expected_label": "Partial"
+    }
+  ]
+}
