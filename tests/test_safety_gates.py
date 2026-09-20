@@ -50,8 +50,47 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_mixed_sla_wrong_urgent_clause_never_supported() -> None:
+    q = "Urgent vs non-urgent support SLAs?"
+    a = (
+        "Non-urgent tickets receive a first response within 2 business days; "
+        "urgent Severity 1 tickets receive a first response within one full business day."
+    )
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_priority_one_day_scale_sla_never_supported() -> None:
+    q = "How fast do Priority 1 tickets get a first response?"
+    a = "Priority 1 tickets get a first response within one full business day."
+    doc = (
+        "Support response time: Non-urgent tickets receive a first response within 2 business days; "
+        "Priority 1 tickets require a first response within 4 business hours."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_closed_nonurgent_cannot_borrow_urgent_hours() -> None:
+    q = "What is the first-response time for non-urgent tickets?"
+    a = "Nonurgent tickets are answered within 4 business hours."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_understated_remote_no_approval_cap_never_supported() -> None:
+    q = "How many remote days are allowed each week without approval?"
+    a = "You can work remotely one day per week without approval."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_mixed_sla_wrong_urgent_clause_never_supported()
+    test_priority_one_day_scale_sla_never_supported()
+    test_closed_nonurgent_cannot_borrow_urgent_hours()
+    test_understated_remote_no_approval_cap_never_supported()
+    print("ok: safety-gate regressions are not Supported")
