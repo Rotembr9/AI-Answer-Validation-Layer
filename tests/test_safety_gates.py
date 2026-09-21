@@ -50,8 +50,56 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_contractor_cannot_receive_is_not_supported() -> None:
+    q = "Can contractors receive the remote stipend?"
+    a = "Yes, contractors can receive the remote stipend."
+    doc = (
+        "Remote stipend policy: Full-time employees may receive the remote stipend. "
+        "Contractors cannot receive the stipend."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_contractor_excluded_is_not_supported() -> None:
+    q = "Can contractors receive the remote stipend?"
+    a = "Yes, contractors can receive the remote stipend."
+    doc = (
+        "Remote stipend policy: Full-time employees may receive the remote stipend. "
+        "Contractors are excluded from the stipend."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_contractor_excluded_with_other_negation_is_not_supported() -> None:
+    q = "Can contractors receive the remote stipend?"
+    a = "Contractors are not employees, but they can receive the remote stipend."
+    doc = (
+        "Remote stipend policy: Full-time employees may receive the remote stipend. "
+        "Contractors are excluded from the stipend."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Not Supported", r
+
+
+def test_excluded_group_omission_is_partial() -> None:
+    q = "Who is eligible for the remote stipend?"
+    a = "Full-time employees are eligible."
+    doc = (
+        "Remote stipend policy: Full-time employees may receive the remote stipend. "
+        "Contractors are excluded from the stipend."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
+    test_contractor_cannot_receive_is_not_supported()
+    test_contractor_excluded_is_not_supported()
+    test_contractor_excluded_with_other_negation_is_not_supported()
+    test_excluded_group_omission_is_partial()
     print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
