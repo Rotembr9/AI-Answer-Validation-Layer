@@ -321,6 +321,19 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    """Answer names contractors as excluded instead of merely mentioning them."""
+    return bool(
+        re.search(
+            r"\b(contractors?\b(?:\W+\w+){0,4}\W+"
+            r"(not\s+(?:being\s+)?eligible|ineligible|excluded|cannot\s+receive|can't\s+receive|not\s+allowed)|"
+            r"except\s+contractors?|"
+            r"does(?:\s+not|n't)\s+apply\s+to\s+contractors?)\b",
+            ans_low,
+        )
+    )
+
+
 def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
@@ -330,19 +343,15 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_excludes_contractors(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
-    if "part-time" in doc_low and "not" in doc_low:
+    if ("part-time" in doc_low or "part time" in doc_low) and "not" in doc_low:
         if "part-time" in ans_low or "part time" in ans_low:
             return True
     if "are not allowed" in doc_low:
