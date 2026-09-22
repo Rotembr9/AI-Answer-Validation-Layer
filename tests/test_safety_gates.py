@@ -50,8 +50,26 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_unrelated_exception_does_not_hide_eligibility_omission() -> None:
+    """Inventing a different exception must not cover the source contractor exclusion."""
+    q = "Who is eligible for the remote stipend?"
+    a = "Full-time staff are eligible for the remote stipend except interns."
+    r = validate(q, a, _doc())
+    assert r["verdict"] != "Supported", r
+
+
+def test_contractor_exclusion_paraphrase_remains_supported() -> None:
+    """Legitimate contractor-exclusion wording should still satisfy exclusivity."""
+    q = "Who may receive the remote stipend under eligibility rules?"
+    a = "Full-time staff may; contractors are explicitly not eligible."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_unrelated_exception_does_not_hide_eligibility_omission()
+    test_contractor_exclusion_paraphrase_remains_supported()
+    print("ok: safety gates and eligibility exclusivity regressions pass")
