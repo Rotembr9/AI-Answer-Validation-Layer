@@ -119,6 +119,26 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    """True when the answer itself states that contractors are excluded."""
+    contractor = r"\bcontractors?\b"
+    if re.search(rf"{contractor}\s+(?:are\s+|is\s+)?(?:explicitly\s+)?(?:not\s+eligible|ineligible)\b", ans_low):
+        return True
+    if re.search(rf"{contractor}\s+(?:are\s+|is\s+)?not\s+being\s+eligible\b", ans_low):
+        return True
+    if re.search(rf"{contractor}\s+(?:cannot|can\s+t|can't)\s+(?:receive|get|qualify)\b", ans_low):
+        return True
+    if re.search(rf"{contractor}\s+(?:do|does)\s+not\s+(?:receive|get|qualify)\b", ans_low):
+        return True
+    if re.search(rf"\b(?:no)\s+{contractor}\s+(?:are\s+|is\s+)?eligible\b", ans_low):
+        return True
+    if re.search(rf"\b(?:except|excluding)\s+{contractor}\b", ans_low):
+        return True
+    if re.search(rf"\b(?:does\s+not|doesn\s+t|doesn't|do\s+not|don\s+t|don't)\s+apply\s+to\s+{contractor}\b", ans_low):
+        return True
+    return False
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +178,7 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if "contractors are not eligible" in doc_low and not _answer_excludes_contractors(a_norm):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -330,17 +350,11 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
+        if _answer_excludes_contractors(ans_low):
             return True
     if "part-time" in doc_low and "not" in doc_low:
         if "part-time" in ans_low or "part time" in ans_low:
