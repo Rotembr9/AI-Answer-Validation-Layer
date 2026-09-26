@@ -158,7 +158,7 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if _text_excludes_contractors(d_norm) and not _text_excludes_contractors(a_norm):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -285,8 +285,40 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
 )
 
 # Source cues that the policy states exclusivity or explicit non-eligibility.
+def _text_excludes_contractors(text: str) -> bool:
+    if "contractor" not in text:
+        return False
+    return bool(
+        re.search(
+            r"\bcontractors?\b[^.;]*(not\s+(being\s+)?eligible|ineligible|cannot|can't|not\s+allowed|excluded|does\s+not\s+apply|doesn't\s+apply)",
+            text,
+        )
+        or re.search(
+            r"\b(except|excluding|other\s+than|not\s+for|does\s+not\s+apply\s+to|doesn't\s+apply\s+to)\b[^.;]*\bcontractors?\b",
+            text,
+        )
+    )
+
+
+def _text_excludes_part_time(text: str) -> bool:
+    if "part time" not in text:
+        return False
+    return bool(
+        re.search(
+            r"\bpart\s+time\b[^.;]*(not\s+(being\s+)?eligible|ineligible|cannot|can't|not\s+allowed|excluded|does\s+not\s+apply|doesn't\s+apply)",
+            text,
+        )
+        or re.search(
+            r"\b(except|excluding|other\s+than|not\s+for|does\s+not\s+apply\s+to|doesn't\s+apply\s+to)\b[^.;]*\bpart\s+time\b",
+            text,
+        )
+    )
+
+
 def _source_has_exclusivity_marker(doc_low: str) -> bool:
-    if "not eligible" in doc_low:
+    if _text_excludes_contractors(doc_low) or _text_excludes_part_time(doc_low):
+        return True
+    if "not eligible" in doc_low or "ineligible" in doc_low:
         return True
     if "are not allowed" in doc_low:
         return True
@@ -330,20 +362,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+    if _text_excludes_contractors(doc_low):
+        if _text_excludes_contractors(ans_low):
             return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
+    if _text_excludes_part_time(doc_low):
+        if _text_excludes_part_time(ans_low):
             return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
@@ -351,7 +375,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(question: str, answer: str, evidence_text: str) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -366,7 +390,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
+    doc_low = evidence_text.lower().replace("-", " ")
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
 
