@@ -50,8 +50,30 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_wrong_named_exception_is_not_supported() -> None:
+    """Exception wording must name the policy's actual excluded group."""
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time employees are eligible except interns."
+    doc = "Full-time staff only; contractors are not eligible for the remote stipend."
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
+def test_unrelated_exclusion_does_not_penalize_remote_permission() -> None:
+    q = "Who can work remotely without approval?"
+    a = "Employees may work remotely up to 3 days per week without extra approval."
+    doc = (
+        "Full-time staff only; contractors are not eligible for the remote stipend.\n"
+        "Employees may work remotely up to 3 days per week without extra approval."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_wrong_named_exception_is_not_supported()
+    test_unrelated_exclusion_does_not_penalize_remote_permission()
+    print("ok: H-N08 and H-P10 are not Supported; exclusivity regressions passed")
