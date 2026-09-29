@@ -158,7 +158,10 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and not _answer_excludes_group(a_norm, r"\bcontractors?\b")
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -321,6 +324,44 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
+_EXCLUDED_GROUP_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("contractor", r"\bcontractors?\b"),
+    ("part_time", r"\bpart[\s-]time\b"),
+    ("intern", r"\binterns?\b"),
+)
+
+_GROUP_EXCLUSION_CUE_RE = re.compile(
+    r"\b("
+    r"not\s+eligible|ineligible|not\s+qualif(?:y|ied)|"
+    r"cannot|can't|not\s+allowed|must\s+not|"
+    r"does\s+not\s+apply|doesn't\s+apply|do\s+not\s+apply|don't\s+apply|"
+    r"excluded|except"
+    r")\b"
+)
+
+
+def _clauses(text: str) -> list[str]:
+    return [c.strip() for c in re.split(r"[.;:\n]+", text) if c.strip()]
+
+
+def _source_excluded_group_patterns(doc_low: str) -> list[str]:
+    """Return group regexes that the source explicitly excludes."""
+    excluded: list[str] = []
+    for _, group_re in _EXCLUDED_GROUP_PATTERNS:
+        for clause in _clauses(doc_low):
+            if re.search(group_re, clause) and _GROUP_EXCLUSION_CUE_RE.search(clause):
+                excluded.append(group_re)
+                break
+    return excluded
+
+
+def _answer_excludes_group(ans_low: str, group_re: str) -> bool:
+    for clause in _clauses(ans_low):
+        if re.search(group_re, clause) and _GROUP_EXCLUSION_CUE_RE.search(clause):
+            return True
+    return False
+
+
 def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
@@ -330,8 +371,9 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
+    for group_re in _source_excluded_group_patterns(doc_low):
+        if _answer_excludes_group(ans_low, group_re):
+            return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
