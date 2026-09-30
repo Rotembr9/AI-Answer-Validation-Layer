@@ -37,6 +37,44 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _normalize_policy_terms(text: str) -> str:
+    """Normalize compact policy terms for substring safety rules."""
+    text = text.lower().replace("-", " ")
+    text = re.sub(r"\bnonurgent\b", "non urgent", text)
+    text = re.sub(r"\bp\s*1\b", "priority 1", text)
+    return text
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Split mixed answers so one correct SLA clause cannot hide another wrong one."""
+    normalized = _normalize_policy_terms(text)
+    spans = [
+        span.strip()
+        for span in re.split(
+            r"[.;]\s*|,\s*(?=(?:urgent|severity|priority\s+1|non\s+urgent)\b)|"
+            r"\b(?:but|while|whereas)\b|\band\s+(?=(?:urgent|severity|priority\s+1|non\s+urgent)\b)",
+            normalized,
+        )
+        if span.strip()
+    ]
+    return spans or [normalized]
+
+
+def _has_urgent_sla_scope(text: str) -> bool:
+    if re.search(r"\bnon\s+urgent\b", text):
+        return False
+    return bool(re.search(r"\b(urgent|severity\s+1|priority\s+1)\b", text))
+
+
+def _has_day_scale_response(text: str) -> bool:
+    return bool(
+        "business day" in text
+        or "calendar day" in text
+        or "full business day" in text
+        or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", text)
+    )
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -46,30 +84,21 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
       extra_contra: merged into overall contradiction penalty [0, 1].
 
     Covers:
-    - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
+    - Urgent / Severity-1 / Priority-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _normalize_policy_terms(answer)
+    d = _normalize_policy_terms(document)
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
-
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
-            extra = max(extra, 0.92)
-            forbid = True
+    if "business hours" in d and re.search(r"\b(urgent|severity\s+1|priority\s+1)\b", d):
+        for span in _claim_spans(answer):
+            if _has_urgent_sla_scope(span) and _has_day_scale_response(span):
+                extra = max(extra, 0.92)
+                forbid = True
+                break
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial = re.search(
@@ -119,6 +148,29 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _answer_covers_contractor_exclusion(ans_low: str) -> bool:
+    """Recognize contractor exclusion paraphrases without accepting unrelated exceptions."""
+    if "contractor" not in ans_low:
+        return False
+    if re.search(r"\b(except|excluding)\s+contractors?\b", ans_low):
+        return True
+    if re.search(r"\bcontractors?\s+(are\s+)?(explicitly\s+)?excluded\b", ans_low):
+        return True
+    if re.search(
+        r"\bcontractors?\b.{0,32}\b("
+        r"not\s+(being\s+)?eligible|ineligible|cannot|may\s+not|"
+        r"do(es)?\s+not\s+(qualify|receive|get)"
+        r")\b",
+        ans_low,
+    ):
+        return True
+    if re.search(r"\b(does not|doesn't)\s+apply\b.{0,32}\bcontractors?\b", ans_low):
+        return True
+    if re.search(r"\bcontractors?\b.{0,32}\b(does not|doesn't)\s+apply\b", ans_low):
+        return True
+    return False
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -134,12 +186,14 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _normalize_policy_terms(question)
     doc_low = document.lower()
-    # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    # Normalize closed/hyphenated SLA terms for substring rules.
+    a_norm = _normalize_policy_terms(joined_a)
+    raw_a_norm = answer.lower().replace("-", " ")
+    d_norm = _normalize_policy_terms(document)
     penalty = 0.0
+    contractor_exclusion_covered = _answer_covers_contractor_exclusion(raw_a_norm)
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
     # Polarity vs top line alone was overly punitive for correct paraphrases; rely on rules below.
@@ -153,12 +207,12 @@ def contradiction_signals(
 
     # Contractor eligibility: explicit mismatch patterns
     if "contractor" in joined_a and "eligible" in joined_a and "full-time" in joined_e:
-        if "not" not in joined_a and "only" in joined_e:
+        if not contractor_exclusion_covered and "not" not in joined_a and "only" in joined_e:
             penalty = max(penalty, 0.9)
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if "contractors are not eligible" in doc_low and not contractor_exclusion_covered:
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -330,15 +384,11 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_covers_contractor_exclusion(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
