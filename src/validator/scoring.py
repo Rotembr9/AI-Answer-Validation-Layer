@@ -119,6 +119,29 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    """True when the answer clearly says contractors are excluded."""
+    if "contractor" not in ans_low:
+        return False
+    if re.search(r"\bexcept\s+contractors?\b", ans_low):
+        return True
+    if re.search(r"\bcontractors?\b.{0,35}\b(excluded|ineligible)\b", ans_low):
+        return True
+    if re.search(
+        r"\bcontractors?\b.{0,45}\b(not|cannot|can't|can not)\b.{0,45}"
+        r"\b(eligible|qualif|receive|get|stipend|reimburs)",
+        ans_low,
+    ):
+        return True
+    if re.search(
+        r"\b(no|not)\b.{0,45}\bcontractors?\b.{0,45}"
+        r"\b(eligible|qualif|receive|get|stipend|reimburs)",
+        ans_low,
+    ):
+        return True
+    return False
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +181,10 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and not _answer_excludes_contractors(joined_a)
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -307,6 +333,25 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
     return False
 
 
+def _relevant_exclusivity_text(question: str, answer: str, document: str) -> str:
+    """Return exclusivity-bearing sentence chunks relevant to the question/answer."""
+    chunks = [p.strip() for p in re.split(r"(?<!\d)(?<=[.!?])\s+", document) if p.strip()]
+    if not chunks:
+        return document
+
+    marked = [c for c in chunks if _source_has_exclusivity_marker(c.lower().replace("-", " "))]
+    if not marked or len(chunks) == 1:
+        return document
+
+    query_terms = set(tu.tokenize(f"{question} {answer}"))
+    relevant = [
+        c
+        for c in marked
+        if len(query_terms & set(tu.tokenize(c))) >= 2
+    ]
+    return " ".join(relevant)
+
+
 def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     """Positive framing of who qualifies (the risky pattern is positive-only + omission)."""
     if not re.search(
@@ -321,6 +366,25 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
+def _answer_names_source_exclusion(ans_low: str, doc_low: str) -> bool:
+    """Whether answer names the group that the matched source text excludes."""
+    excluded_groups = {
+        "contractor": ("contractor",),
+        "part time": ("part time", "part-time"),
+        "intern": ("intern",),
+    }
+    for doc_group, answer_markers in excluded_groups.items():
+        group_pattern = re.escape(doc_group)
+        cue_pattern = r"not eligible|ineligible|excluded|cannot|can't|can not"
+        group_is_excluded = bool(
+            re.search(rf"\b{group_pattern}s?\b.{{0,50}}\b({cue_pattern})\b", doc_low)
+            or re.search(rf"\b({cue_pattern})\b.{{0,50}}\b{group_pattern}s?\b", doc_low)
+        )
+        if group_is_excluded and any(marker in ans_low for marker in answer_markers):
+            return True
+    return False
+
+
 def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
@@ -331,19 +395,17 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     ):
         return True
     if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
+        return _answer_names_source_exclusion(ans_low, doc_low)
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_excludes_contractors(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
+    if "part time" in doc_low and "not" in doc_low:
+        if "part time" in ans_low or "part-time" in ans_low:
             return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
@@ -366,7 +428,11 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
+    relevant_document = _relevant_exclusivity_text(q, answer, document)
+    if not relevant_document:
+        return 0.0
+
+    doc_low = relevant_document.lower().replace("-", " ")
     if not _source_has_exclusivity_marker(doc_low):
         return 0.0
 

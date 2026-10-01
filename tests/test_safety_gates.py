@@ -50,8 +50,38 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_generic_exception_does_not_hide_missing_excluded_group() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time staff are eligible for the stipend except interns."
+    doc = "Full-time staff only; contractors are not eligible for the remote work stipend."
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
+def test_unrelated_exclusivity_does_not_penalize_remote_policy() -> None:
+    q = "Who can work remotely without extra approval?"
+    a = "Employees may work remotely up to 3 days per week without extra approval."
+    doc = (
+        "Employees may work remotely up to 3 days per week without extra approval. "
+        "Full-time staff only; contractors are not eligible for the remote work stipend."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
+def test_named_exception_covers_source_exclusion() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time staff are eligible for the stipend except contractors."
+    doc = "Full-time staff only; contractors are not eligible for the remote work stipend."
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_generic_exception_does_not_hide_missing_excluded_group()
+    test_unrelated_exclusivity_does_not_penalize_remote_policy()
+    test_named_exception_covers_source_exclusion()
+    print("ok: safety gates passed")
