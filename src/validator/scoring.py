@@ -321,37 +321,72 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
-def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
+def _has_exclusion_language(text: str) -> bool:
+    return bool(
+        re.search(r"\bnot\s+(?:being\s+)?eligible\b", text)
+        or "ineligible" in text
+        or re.search(r"\bcannot\s+(receive|get|qualify|be\s+eligible)\b", text)
+        or re.search(r"\bcan't\s+(receive|get|qualify|be\s+eligible)\b", text)
+        or "excluded" in text
+        or "excludes" in text
+        or "does not apply" in text
+        or "doesn't apply" in text
+        or "not entitled" in text
+        or "do not qualify" in text
+        or "does not qualify" in text
+        or "doesn't qualify" in text
+    )
+
+
+def _answer_names_source_exclusion(ans_low: str, source_low: str) -> bool:
+    if "contractor" in source_low and "contractor" in ans_low:
+        return (
+            _has_exclusion_language(ans_low)
+            or "except" in ans_low
+            or re.search(r"\bno\s+contractors?\b", ans_low) is not None
+            or re.search(r"\bnot\s+contractors?\b", ans_low) is not None
+        )
+    if "part time" in source_low and "part time" in ans_low:
+        return (
+            _has_exclusion_language(ans_low)
+            or "except" in ans_low
+            or re.search(r"\bno\s+part\s+time\b", ans_low) is not None
+            or re.search(r"\bnot\s+part\s+time\b", ans_low) is not None
+        )
+    return False
+
+
+def _answer_covers_source_exclusivity(ans_low: str, source_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    explicit_exclusion = (
+        "except" in ans_low
+        or _has_exclusion_language(ans_low)
+        or re.search(r"\bno\s+\w+", ans_low) is not None
+    )
+    if explicit_exclusion:
+        return _answer_names_source_exclusion(ans_low, source_low)
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
-            return True
-    if "are not allowed" in doc_low:
+    if _answer_names_source_exclusion(ans_low, source_low):
+        return True
+    if "are not allowed" in source_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
             return True
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    evidence_text: str = "",
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -366,8 +401,12 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    document_low = document.lower().replace("-", " ")
+    evidence_low = evidence_text.lower().replace("-", " ") if evidence_text else ""
+    marker_source = evidence_low if _source_has_exclusivity_marker(evidence_low) else ""
+    if not marker_source and not evidence_text:
+        marker_source = document_low if _source_has_exclusivity_marker(document_low) else ""
+    if not marker_source:
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
@@ -375,7 +414,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
 
-    if _answer_covers_source_exclusivity(ans_low, doc_low):
+    if _answer_covers_source_exclusivity(ans_low, marker_source):
         return 0.0
 
     # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band
