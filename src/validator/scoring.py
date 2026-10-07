@@ -37,6 +37,55 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+_EXCEPTION_FILLER_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "any",
+        "for",
+        "or",
+        "the",
+        "to",
+    }
+)
+
+
+def _exception_names_only_source_terms(ans_low: str, doc_low: str) -> bool:
+    """Reject exception clauses that introduce groups absent from the source."""
+    doc_terms = {t.rstrip("s") for t in re.findall(r"[a-z0-9]+", doc_low)}
+    spans = re.findall(r"\b(?:except|does not apply to|doesn't apply to)\s+([^.;,]+)", ans_low)
+    for span in spans:
+        terms = [
+            t.rstrip("s")
+            for t in re.findall(r"[a-z0-9]+", span)
+            if t not in _EXCEPTION_FILLER_WORDS
+        ]
+        if terms and any(t not in doc_terms for t in terms):
+            return False
+    return True
+
+
+def _contractor_exclusion_is_covered(ans_low: str, doc_low: str = "") -> bool:
+    if "contractor" not in ans_low:
+        return False
+    if re.search(r"\b(?:except|does not apply to|doesn't apply to)\s+[^.;,]*contractors?\b", ans_low):
+        return not doc_low or _exception_names_only_source_terms(ans_low, doc_low)
+    return bool(
+        re.search(
+            r"\b("
+            r"not\s+eligible|ineligible|excluded|"
+            r"cannot\s+(receive|get)|can't\s+(receive|get)|"
+            r"do\s+not\s+(receive|get)|don't\s+(receive|get)|"
+            r"does\s+not\s+(receive|get)|doesn't\s+(receive|get)|"
+            r"not\s+allowed|not\s+entitled|"
+            r"does\s+not\s+apply|doesn't\s+apply"
+            r")\b",
+            ans_low,
+        )
+    )
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -158,7 +207,11 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and "not eligible" not in joined_a
+            and not _contractor_exclusion_is_covered(a_norm, doc_low)
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -326,19 +379,32 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    has_exception_phrase = (
+        "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low
+    )
+    doc_excludes_contractors = "contractor" in doc_low and (
+        "not eligible" in doc_low
+        or "cannot" in doc_low
+        or "not allowed" in doc_low
+        or "excluded" in doc_low
+    )
+    if has_exception_phrase and not _exception_names_only_source_terms(ans_low, doc_low):
+        return False
+    if has_exception_phrase and doc_excludes_contractors and "contractor" not in ans_low:
+        return False
+    if has_exception_phrase and doc_excludes_contractors and "contractor" in ans_low:
+        return True
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
+    if has_exception_phrase:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _contractor_exclusion_is_covered(ans_low, doc_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
