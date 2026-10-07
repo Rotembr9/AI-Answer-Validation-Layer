@@ -50,8 +50,41 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_wrong_named_exception_does_not_cover_policy_exclusion() -> None:
+    """Generic exception wording must name the source exclusion to avoid false Supported."""
+    q = "Who is eligible for the remote work stipend?"
+    a = "Only full-time staff are eligible except interns."
+    doc = "Full-time staff only; contractors are not eligible"
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
+def test_contractor_exclusion_paraphrase_is_supported() -> None:
+    """A correct exclusion paraphrase should still satisfy the eligibility gate."""
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time staff are eligible; contractors are excluded."
+    doc = "Full-time staff only; contractors are not eligible"
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
+def test_unrelated_exclusion_line_does_not_penalize_remote_answer() -> None:
+    """Exclusivity gates should apply to the matched evidence line, not the whole doc."""
+    q = "Who can work remotely without extra approval?"
+    a = "Employees can work remotely up to 3 days per week without extra approval."
+    doc = (
+        "Eligible employees: Full-time staff only; contractors are not eligible for the remote stipend.\n"
+        "Remote work: Employees may work remotely up to 3 days per week without extra approval."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_wrong_named_exception_does_not_cover_policy_exclusion()
+    test_contractor_exclusion_paraphrase_is_supported()
+    test_unrelated_exclusion_line_does_not_penalize_remote_answer()
+    print("ok: safety gates passed")
