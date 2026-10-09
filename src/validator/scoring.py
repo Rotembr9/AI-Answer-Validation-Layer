@@ -320,7 +320,7 @@ _EXCLUDED_GROUP_PATTERNS: dict[str, str] = {
 def _source_excluded_groups(doc_low: str) -> set[str]:
     groups: set[str] = set()
     exclusion_cues = (
-        r"not\s+eligible|ineligible|excluded|not\s+allowed|cannot|can't|"
+        r"not\s+(?:being\s+)?eligible|ineligible|excluded|not\s+allowed|cannot|can't|"
         r"does\s+not\s+apply|do\s+not\s+qualify|does\s+not\s+qualify"
     )
     for group, pattern in _EXCLUDED_GROUP_PATTERNS.items():
@@ -348,7 +348,7 @@ def _answer_excludes_group(ans_low: str, group: str) -> bool:
     if not re.search(rf"\b{pattern}\b", ans_low):
         return False
     exclusion_cues = (
-        r"not\s+eligible|ineligible|excluded|cannot|can't|not\s+allowed|"
+        r"not\s+(?:being\s+)?eligible|ineligible|excluded|cannot|can't|not\s+allowed|"
         r"do\s+not\s+qualify|does\s+not\s+qualify|does\s+not\s+apply"
     )
     return bool(

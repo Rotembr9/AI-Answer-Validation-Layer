@@ -69,6 +69,17 @@ def test_contractor_exclusion_paraphrase_is_supported() -> None:
     assert r["verdict"] == "Supported", r
 
 
+def test_contractor_not_being_eligible_is_not_a_contradiction() -> None:
+    q = "Who gets remote stipend money?"
+    a = (
+        "Full-time employees can receive it; the policy also references contractors "
+        "not being eligible but does not describe hybrid roles."
+    )
+    doc = "Full-time staff only; contractors are not eligible for the remote stipend."
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Partial", r
+
+
 def test_unrelated_exclusion_line_does_not_penalize_remote_answer() -> None:
     q = "How many remote days are allowed each week without approval?"
     a = "Employees are allowed to work remotely up to 3 days per week without extra approval."
@@ -88,5 +99,6 @@ if __name__ == "__main__":
     test_incomplete_eligibility_is_partial_not_supported()
     test_wrong_exception_does_not_cover_eligibility_exclusion()
     test_contractor_exclusion_paraphrase_is_supported()
+    test_contractor_not_being_eligible_is_not_a_contradiction()
     test_unrelated_exclusion_line_does_not_penalize_remote_answer()
     print("ok: safety gates passed")
