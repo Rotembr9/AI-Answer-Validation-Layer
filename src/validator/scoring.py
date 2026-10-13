@@ -158,7 +158,10 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            _source_excludes_group(d_norm, "contractor")
+            and not _answer_excludes_group(a_norm, "contractor")
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -288,6 +291,11 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
 def _source_has_exclusivity_marker(doc_low: str) -> bool:
     if "not eligible" in doc_low:
         return True
+    if "excluded" in doc_low and re.search(
+        r"\b(contractor|part\s+time|intern|eligible|stipend|reimburs|remote\s+work)\b",
+        doc_low,
+    ):
+        return True
     if "are not allowed" in doc_low:
         return True
     if re.search(r"\bonly\b", doc_low) and re.search(
@@ -321,6 +329,50 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
+_GROUP_PATTERNS = {
+    "contractor": r"contractors?",
+    "part_time": r"part\s+time",
+    "intern": r"interns?",
+}
+
+_GROUP_EXCLUSION_RE = (
+    r"(not\s+eligible|ineligible|excluded|cannot|can't|can\s+not|"
+    r"does\s+not\s+apply|doesn't\s+apply|do\s+not\s+apply|"
+    r"not\s+allowed|may\s+not|must\s+not|not\s+qualif(?:y|ied)|"
+    r"cannot\s+receive|can't\s+receive|cannot\s+get|can't\s+get)"
+)
+
+
+def _answer_excludes_group(ans_low: str, group: str) -> bool:
+    """Whether the answer names the same excluded group and preserves exclusion polarity."""
+    group_re = _GROUP_PATTERNS[group]
+    if re.search(rf"\bexcept\s+(?:for\s+)?(?:the\s+)?{group_re}\b", ans_low):
+        return True
+    if re.search(rf"\b{group_re}\b[^.;\n]{{0,80}}\b{_GROUP_EXCLUSION_RE}\b", ans_low):
+        return True
+    if re.search(rf"\b{_GROUP_EXCLUSION_RE}\b[^.;\n]{{0,80}}\b{group_re}\b", ans_low):
+        return True
+    return False
+
+
+def _source_excludes_group(doc_low: str, group: str) -> bool:
+    """Whether the source explicitly excludes a group from the relevant policy benefit."""
+    group_re = _GROUP_PATTERNS[group]
+    if re.search(rf"\b{group_re}\b[^.;\n]{{0,100}}\b{_GROUP_EXCLUSION_RE}\b", doc_low):
+        return True
+    if re.search(rf"\b{_GROUP_EXCLUSION_RE}\b[^.;\n]{{0,100}}\b{group_re}\b", doc_low):
+        return True
+    return False
+
+
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    return {
+        group
+        for group in _GROUP_PATTERNS
+        if _source_excludes_group(doc_low, group)
+    }
+
+
 def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
@@ -330,21 +382,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
+    excluded_groups = _source_excluded_groups(doc_low)
+    if any(_answer_excludes_group(ans_low, group) for group in excluded_groups):
         return True
+    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
+        return False
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
-            return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
             return True
