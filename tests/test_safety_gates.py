@@ -50,8 +50,78 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_wrong_exception_does_not_cover_contractor_exclusion() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time staff are eligible except interns."
+    doc = "Full-time staff only; contractors are not eligible for the remote work stipend."
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_contractor_exclusion_paraphrase_stays_supported() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    a = "Full-time staff are eligible; contractors are excluded."
+    doc = "Full-time staff only; contractors are not eligible for the remote work stipend."
+    r = validate(q, a, doc)
+    assert r["verdict"] == "Supported", r
+
+
+def test_urgent_day_scale_without_severity_never_supported() -> None:
+    q = "How fast should urgent tickets get a first response?"
+    a = "Urgent tickets receive a first response within one business day."
+    doc = (
+        "Support response time: Urgent tickets require a first response within "
+        "4 business hours. Non-urgent tickets receive a first response within 2 business days."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_mixed_sla_wrong_urgent_clause_never_supported() -> None:
+    q = "What are the support response times?"
+    a = (
+        "Non-urgent tickets get a first response within 2 business days; "
+        "urgent tickets get a first response within one business day."
+    )
+    doc = (
+        "Support response time: Non-urgent tickets receive a first response within "
+        "2 business days; urgent (Severity 1) tickets require a first response within "
+        "4 business hours."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_closed_nonurgent_borrowing_urgent_sla_never_supported() -> None:
+    q = "What is the first-response SLA for nonurgent tickets?"
+    a = "Nonurgent tickets receive a first response within 4 business hours."
+    doc = (
+        "Support response time: Non-urgent tickets receive a first response within "
+        "2 business days; urgent tickets require a first response within 4 business hours."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
+def test_fourth_remote_after_week_begins_never_supported() -> None:
+    q = "What if I want a fourth remote day in one week?"
+    a = "A fourth remote day requires written manager approval after that week begins."
+    doc = (
+        "A 4th remote day in the same week requires written manager approval received "
+        "before that week begins."
+    )
+    r = validate(q, a, doc)
+    assert r["verdict"] != "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_wrong_exception_does_not_cover_contractor_exclusion()
+    test_contractor_exclusion_paraphrase_stays_supported()
+    test_urgent_day_scale_without_severity_never_supported()
+    test_mixed_sla_wrong_urgent_clause_never_supported()
+    test_closed_nonurgent_borrowing_urgent_sla_never_supported()
+    test_fourth_remote_after_week_begins_never_supported()
+    print("ok: safety gates block critical false Supported regressions")
