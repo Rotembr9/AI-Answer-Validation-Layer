@@ -119,6 +119,43 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    if "contractor" not in ans_low:
+        return False
+    contractor = r"contractors?"
+    exclusion_cues = (
+        r"not\s+eligible|not\s+being\s+eligible|ineligible|excluded|"
+        r"not\s+included|not\s+allowed|cannot|can't|do\s+not|does\s+not|"
+        r"don't|doesn't"
+    )
+    bridge = r"(?:\s+(?:are|is|be|being|remain|explicitly|also))*\s+"
+    patterns = (
+        rf"\b{contractor}\b{bridge}(?:{exclusion_cues})\b",
+        rf"\b(?:except|excluding|other\s+than)\s+{contractor}\b",
+        rf"\b(?:does\s+not|doesn't|do\s+not|don't)\s+apply\s+to\s+{contractor}\b",
+        rf"\bno\s+{contractor}\b",
+    )
+    return any(re.search(pattern, ans_low) for pattern in patterns)
+
+
+def _answer_excludes_part_time(ans_low: str) -> bool:
+    if "part time" not in ans_low:
+        return False
+    part_time = r"part\s+time"
+    exclusion_cues = (
+        r"not\s+eligible|not\s+being\s+eligible|ineligible|excluded|"
+        r"not\s+included|not\s+allowed|cannot|can't|do\s+not|does\s+not|"
+        r"don't|doesn't"
+    )
+    bridge = r"(?:\s+(?:are|is|be|being|remain|explicitly|also))*\s+"
+    patterns = (
+        rf"\b{part_time}\b{bridge}(?:{exclusion_cues})\b",
+        rf"\b(?:except|excluding|other\s+than)\s+{part_time}\b",
+        rf"\b(?:does\s+not|doesn't|do\s+not|don't)\s+apply\s+to\s+{part_time}\b",
+    )
+    return any(re.search(pattern, ans_low) for pattern in patterns)
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -136,6 +173,7 @@ def contradiction_signals(
     joined_e = " ".join(e_tokens).lower()
     q_norm = question.lower().replace("-", " ")
     doc_low = document.lower()
+    answer_low = answer.lower().replace("-", " ")
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
     d_norm = doc_low.replace("-", " ")
@@ -158,7 +196,12 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        contractor_exclusion_in_answer = _answer_excludes_contractors(answer_low)
+        if (
+            "contractors are not eligible" in doc_low
+            and "not eligible" not in joined_a
+            and not contractor_exclusion_in_answer
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -321,29 +364,14 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
-def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
-    """
-    True if the answer reflects exclusivity or the explicit exclusion from the doc
-    (not necessarily verbatim — enough that it is not a naive positive-only slice).
-    """
-    if re.search(r"\bonly\b", ans_low) and re.search(
-        r"\b(full[\s-]time|staff|employee)\b", ans_low
-    ):
-        return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
-    # Named exclusion from policy text
+def _answer_mentions_source_exclusion(ans_low: str, doc_low: str) -> bool:
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_excludes_contractors(ans_low):
             return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
+    if "part time" in doc_low and "not" in doc_low:
+        if _answer_excludes_part_time(ans_low):
             return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
@@ -351,7 +379,31 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
+    """
+    True if the answer reflects exclusivity or the explicit exclusion from the doc
+    (not necessarily verbatim — enough that it is not a naive positive-only slice).
+    """
+    exception_marker = re.search(
+        r"\b(except|excluding|other\s+than)\b|"
+        r"\b(?:does\s+not|doesn't|do\s+not|don't)\s+apply\b",
+        ans_low,
+    )
+    if exception_marker:
+        return _answer_mentions_source_exclusion(ans_low, doc_low)
+    if re.search(r"\bonly\b", ans_low) and re.search(
+        r"\b(full[\s-]time|staff|employee)\b", ans_low
+    ):
+        return True
+    return _answer_mentions_source_exclusion(ans_low, doc_low)
+
+
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    evidence_text: str | None = None,
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -366,8 +418,9 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    relevant_source = evidence_text or document
+    relevant_low = relevant_source.lower().replace("-", " ")
+    if not _source_has_exclusivity_marker(relevant_low):
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
@@ -375,7 +428,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
 
-    if _answer_covers_source_exclusivity(ans_low, doc_low):
+    if _answer_covers_source_exclusivity(ans_low, relevant_low):
         return 0.0
 
     # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band
