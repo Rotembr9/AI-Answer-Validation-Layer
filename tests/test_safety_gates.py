@@ -50,8 +50,38 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_wrong_exception_does_not_cover_contractor_exclusion() -> None:
+    """A generic/wrong exception must not hide the policy's contractor exclusion."""
+    q = "Who is eligible for the remote work stipend?"
+    doc = "Full-time staff only; contractors are not eligible"
+    answers = [
+        "Full-time staff are eligible except interns.",
+        "Full-time staff are eligible, but the stipend does not apply to interns.",
+        "Only full-time staff are eligible except interns.",
+    ]
+    for a in answers:
+        r = validate(q, a, doc)
+        assert r["verdict"] == "Partial", (a, r)
+
+
+def test_contractor_exclusion_paraphrases_remain_supported() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    doc = "Full-time staff only; contractors are not eligible"
+    answers = [
+        "Full-time staff are eligible except contractors.",
+        "Full-time staff are eligible; the stipend does not apply to contractors.",
+        "Full-time staff are eligible; contractors are excluded.",
+        "Full-time staff are eligible; contractors cannot receive the stipend.",
+    ]
+    for a in answers:
+        r = validate(q, a, doc)
+        assert r["verdict"] == "Supported", (a, r)
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
+    test_wrong_exception_does_not_cover_contractor_exclusion()
+    test_contractor_exclusion_paraphrases_remain_supported()
     print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
