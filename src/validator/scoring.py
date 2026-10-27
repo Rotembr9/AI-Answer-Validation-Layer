@@ -157,8 +157,9 @@ def contradiction_signals(
             penalty = max(penalty, 0.9)
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
+    ans_low = answer.lower().replace("-", " ")
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if _source_excludes_contractors(d_norm) and not _answer_excludes_contractors(ans_low):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -307,6 +308,74 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
     return False
 
 
+def _source_excludes_contractors(src_low: str) -> bool:
+    return bool(
+        re.search(r"\bcontractors?\b[^.;:]*\bnot\s+eligible\b", src_low)
+        or re.search(r"\bcontractors?\b[^.;:]*\bineligible\b", src_low)
+        or re.search(r"\bcontractors?\b[^.;:]*\bexcluded\b", src_low)
+    )
+
+
+def _source_excludes_part_time(src_low: str) -> bool:
+    return bool(
+        re.search(r"\bpart\s+time\b[^.;:]*\bnot\s+eligible\b", src_low)
+        or re.search(r"\bpart\s+time\b[^.;:]*\bineligible\b", src_low)
+        or re.search(r"\bpart\s+time\b[^.;:]*\bexcluded\b", src_low)
+    )
+
+
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    """Answer wording that accurately reflects a contractor exclusion."""
+    return bool(
+        re.search(
+            r"\bcontractors?\b[^.;:]*\b("
+            r"not\s+eligible|not\s+being\s+eligible|ineligible|excluded|not\s+allowed"
+            r")\b",
+            ans_low,
+        )
+        or re.search(
+            r"\bcontractors?\b[^.;:]*\b("
+            r"cannot|can't|can\s+not|may\s+not|do\s+not|don't"
+            r")\b[^.;:]*\b(receive|get|qualify|claim|obtain|reimburs\w*|stipend)\b",
+            ans_low,
+        )
+        or re.search(r"\bexcept\s+contractors?\b", ans_low)
+        or re.search(r"\bdoes(?:\s+not|n't)\s+apply\s+to\s+contractors?\b", ans_low)
+        or re.search(
+            r"\bno\s+contractors?\b[^.;:]*\b(eligible|qualif\w*|receive|get|reimburs\w*|stipend)\b",
+            ans_low,
+        )
+    )
+
+
+def _answer_has_unmatched_exception_clause(ans_low: str, src_low: str) -> bool:
+    """
+    Exception clauses must name the source-backed excluded group. Otherwise an answer
+    like "only full-time staff, except interns" can fabricate an exclusion and still
+    look highly similar to a contractor-exclusion policy.
+    """
+    clauses: list[str] = []
+    clauses.extend(m.group(1) for m in re.finditer(r"\bexcept\s+([^.;,\n]+)", ans_low))
+    clauses.extend(
+        m.group(1)
+        for m in re.finditer(r"\bdoes(?:\s+not|n't)\s+apply\s+to\s+([^.;,\n]+)", ans_low)
+    )
+    if not clauses:
+        return False
+
+    for clause in clauses:
+        if _source_excludes_contractors(src_low) and "contractor" in clause:
+            continue
+        if _source_excludes_part_time(src_low) and (
+            "part time" in clause or "part-time" in clause
+        ):
+            continue
+        if "intern" in clause and "intern" in src_low:
+            continue
+        return True
+    return False
+
+
 def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     """Positive framing of who qualifies (the risky pattern is positive-only + omission)."""
     if not re.search(
@@ -326,22 +395,15 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    if _answer_has_unmatched_exception_clause(ans_low, doc_low):
+        return False
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
+    if _source_excludes_contractors(doc_low) and _answer_excludes_contractors(ans_low):
+        return True
     if "part-time" in doc_low and "not" in doc_low:
         if "part-time" in ans_low or "part time" in ans_low:
             return True
@@ -351,7 +413,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    top_evidence_line: str | None = None,
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -366,8 +433,8 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    source_low = (top_evidence_line or document).lower().replace("-", " ")
+    if not _source_has_exclusivity_marker(source_low):
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
@@ -375,7 +442,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
 
-    if _answer_covers_source_exclusivity(ans_low, doc_low):
+    if _answer_covers_source_exclusivity(ans_low, source_low):
         return 0.0
 
     # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band
