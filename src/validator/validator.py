@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,37 @@ def _top_evidence(scored_lines: list[tuple[float, str]], k: int = 3) -> list[str
         if len(out) >= k:
             break
     return out
+
+
+def _section_prefix(line: str) -> str:
+    match = re.match(r"^\s*(?:\d+[.)]\s*)?([^:]{1,60}):", line)
+    if not match:
+        return ""
+    return " ".join(tu.tokenize(match.group(1)))
+
+
+def _exclusivity_evidence_scope(scored_lines: list[tuple[float, str]]) -> str:
+    if not scored_lines:
+        return ""
+
+    top_line = scored_lines[0][1]
+    top_prefix = _section_prefix(top_line)
+    scope = [top_line]
+    seen = {top_line}
+
+    for score, line in scored_lines[1:]:
+        if score <= 0 or line in seen:
+            continue
+        line_low = line.lower().replace("-", " ")
+        if not sc._source_has_exclusivity_marker(line_low):
+            continue
+        line_prefix = _section_prefix(line)
+        if top_prefix and line_prefix and top_prefix != line_prefix:
+            continue
+        seen.add(line)
+        scope.append(line)
+
+    return "\n".join(scope)
 
 
 def validate(question: str, answer: str, source_document: str) -> dict[str, Any]:
@@ -47,7 +79,12 @@ def validate_with_debug(question: str, answer: str, source_document: str) -> dic
     contra = sc.contradiction_signals(answer, top_line, source_document, question)
     forbid_sup, safety_contra = sc.supported_safety_flags(answer, source_document)
     contra = max(contra, safety_contra)
-    excl_pen = sc.incomplete_exclusivity_penalty(question, answer, source_document)
+    excl_pen = sc.incomplete_exclusivity_penalty(
+        question,
+        answer,
+        source_document,
+        evidence_scope=_exclusivity_evidence_scope(scored),
+    )
     contra = max(contra, excl_pen)
 
     def _numeric_conflict() -> bool:
