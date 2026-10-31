@@ -36,6 +36,89 @@ MAX_CONTRA_FOR_SUPPORTED = 0.34
 EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
+_EXCLUDED_GROUP_ALIASES = {
+    "contractor": ("contractor", "contractors"),
+    "part_time": ("part time", "part timers", "part timer"),
+    "intern": ("intern", "interns"),
+}
+_EXCLUSION_CUE_RE = re.compile(
+    r"\b("
+    r"not\s+(?:being\s+)?eligible|"
+    r"ineligible|"
+    r"not\s+allowed|"
+    r"cannot\s+(?:receive|get|be|work)|"
+    r"can't\s+(?:receive|get|be|work)|"
+    r"excluded|"
+    r"not\s+covered"
+    r")\b|does\s+not\s+apply|doesn't\s+apply",
+    re.IGNORECASE,
+)
+
+
+def _window_around(
+    text: str,
+    start: int,
+    end: int,
+    before: int = 60,
+    after: int = 80,
+) -> str:
+    return text[max(0, start - before): min(len(text), end + after)]
+
+
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    groups: set[str] = set()
+    for group, aliases in _EXCLUDED_GROUP_ALIASES.items():
+        for alias in aliases:
+            for m in re.finditer(rf"\b{re.escape(alias)}\b", doc_low):
+                if _EXCLUSION_CUE_RE.search(
+                    _window_around(doc_low, m.start(), m.end())
+                ):
+                    groups.add(group)
+                    break
+            if group in groups:
+                break
+    return groups
+
+
+def _groups_mentioned(text: str) -> set[str]:
+    mentioned: set[str] = set()
+    for group, aliases in _EXCLUDED_GROUP_ALIASES.items():
+        if any(re.search(rf"\b{re.escape(alias)}\b", text) for alias in aliases):
+            mentioned.add(group)
+    return mentioned
+
+
+def _answer_denies_group(ans_low: str, group: str) -> bool:
+    for alias in _EXCLUDED_GROUP_ALIASES[group]:
+        exception_for_alias = rf"\bexcept\b[^.;,]*\b{re.escape(alias)}\b"
+        if re.search(exception_for_alias, ans_low):
+            return True
+        for m in re.finditer(rf"\b{re.escape(alias)}\b", ans_low):
+            window = _window_around(ans_low, m.start(), m.end())
+            if _EXCLUSION_CUE_RE.search(window):
+                return True
+    return False
+
+
+def _answer_covers_source_excluded_group(ans_low: str, doc_low: str) -> bool:
+    return any(
+        _answer_denies_group(ans_low, group)
+        for group in _source_excluded_groups(doc_low)
+    )
+
+
+def _answer_has_unmatched_exception(ans_low: str, doc_low: str) -> bool:
+    source_groups = _source_excluded_groups(doc_low)
+    if not source_groups:
+        return False
+
+    exception_re = r"\b(?:except|does\s+not\s+apply\s+to|doesn't\s+apply\s+to)\b([^.;]*)"
+    for m in re.finditer(exception_re, ans_low):
+        mentioned = _groups_mentioned(m.group(1))
+        if not mentioned or not mentioned.issubset(source_groups):
+            return True
+    return False
+
 
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
@@ -158,7 +241,11 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and "not eligible" not in joined_a
+            and not _answer_denies_group(a_norm, "contractor")
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -330,7 +417,7 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
+    if _answer_covers_source_excluded_group(ans_low, doc_low):
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
@@ -374,6 +461,9 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
 
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
+
+    if _answer_has_unmatched_exception(ans_low, doc_low):
+        return 0.56
 
     if _answer_covers_source_exclusivity(ans_low, doc_low):
         return 0.0

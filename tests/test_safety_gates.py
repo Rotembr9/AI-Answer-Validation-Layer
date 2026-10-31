@@ -50,8 +50,45 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_unmatched_exception_does_not_cover_source_exclusion() -> None:
+    """An exception for an unrelated group must not hide the contractor exclusion."""
+    q = "Who is eligible for the remote stipend?"
+    doc = _doc()
+    answers = [
+        "Full-time staff are eligible for the remote stipend except interns.",
+        "Full-time staff are eligible for the remote stipend; it does not apply to interns.",
+        "Only full-time staff are eligible for the remote stipend except interns.",
+    ]
+    for answer in answers:
+        r = validate(q, answer, doc)
+        assert r["verdict"] != "Supported", r
+
+
+def test_contractor_exclusion_paraphrases_remain_supported() -> None:
+    q = "Who is eligible for the remote stipend?"
+    doc = _doc()
+    answers = [
+        "Full-time staff are eligible for the remote stipend except contractors.",
+        "Full-time staff are eligible for the remote stipend; contractors are excluded.",
+        "Full-time staff may receive the remote stipend; it does not apply to contractors.",
+    ]
+    for answer in answers:
+        r = validate(q, answer, doc)
+        assert r["verdict"] == "Supported", r
+
+
+def test_unrelated_exception_does_not_hide_contractor_contradiction() -> None:
+    q = "Are contractors eligible for the remote stipend?"
+    a = "Yes, contractors are eligible for the remote stipend except interns."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Not Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_unmatched_exception_does_not_cover_source_exclusion()
+    test_contractor_exclusion_paraphrases_remain_supported()
+    test_unrelated_exception_does_not_hide_contractor_contradiction()
+    print("ok: safety gates passed")
