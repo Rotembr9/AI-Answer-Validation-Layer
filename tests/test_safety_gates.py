@@ -50,8 +50,37 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_unrelated_exception_does_not_cover_source_exclusion() -> None:
+    """Exception wording must match the doc's excluded group, not just any group."""
+    q = "Who is eligible for the remote work stipend?"
+    doc = "Full-time staff only; contractors are not eligible for the remote stipend."
+    answers = [
+        "Full-time staff are eligible except interns.",
+        "Full-time staff are eligible; the stipend does not apply to interns.",
+    ]
+    for answer in answers:
+        r = validate(q, answer, doc)
+        assert r["verdict"] == "Partial", (answer, r)
+
+
+def test_contractor_exclusion_paraphrases_remain_supported() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    doc = "Full-time staff only; contractors are not eligible for the remote stipend."
+    answers = [
+        "Full-time staff are eligible except contractors.",
+        "Full-time staff are eligible; contractors are excluded.",
+        "Full-time staff may receive it; contractors cannot receive it.",
+        "Full-time staff may receive it; it does not apply to contractors.",
+    ]
+    for answer in answers:
+        r = validate(q, answer, doc)
+        assert r["verdict"] == "Supported", (answer, r)
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_unrelated_exception_does_not_cover_source_exclusion()
+    test_contractor_exclusion_paraphrases_remain_supported()
+    print("ok: safety gates passed")
