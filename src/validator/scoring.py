@@ -158,7 +158,10 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and not _answer_excludes_group(a_norm, "contractor")
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -307,6 +310,61 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
     return False
 
 
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    """Return named groups that the source explicitly excludes."""
+    groups: set[str] = set()
+    if "contractor" in doc_low and (
+        "not eligible" in doc_low
+        or "ineligible" in doc_low
+        or "are not allowed" in doc_low
+        or "cannot receive" in doc_low
+        or "can't receive" in doc_low
+    ):
+        groups.add("contractor")
+    if ("part time" in doc_low or "part-time" in doc_low) and (
+        "not eligible" in doc_low or "ineligible" in doc_low or "are not allowed" in doc_low
+    ):
+        groups.add("part time")
+    if "intern" in doc_low and (
+        "not eligible" in doc_low or "ineligible" in doc_low or "are not allowed" in doc_low
+    ):
+        groups.add("intern")
+    return groups
+
+
+def _answer_excludes_group(ans_low: str, group: str) -> bool:
+    """True when the answer names a source-excluded group as excluded."""
+    if group == "contractor":
+        group_re = r"contractors?"
+    elif group == "part time":
+        group_re = r"part\s+time"
+    elif group == "intern":
+        group_re = r"interns?"
+    else:
+        group_re = re.escape(group)
+
+    if not re.search(rf"\b{group_re}\b", ans_low):
+        return False
+
+    exclusion_after_group = re.search(
+        rf"\b{group_re}\b[^.;,]{{0,50}}\b("
+        r"not\s+eligible|not\s+being\s+eligible|ineligible|excluded|"
+        r"not\s+allowed|cannot\s+(receive|get|qualify)|can't\s+(receive|get|qualify)|"
+        r"do\s+not\s+(receive|get|qualify|apply)|don't\s+(receive|get|qualify|apply)"
+        r")\b",
+        ans_low,
+    )
+    if exclusion_after_group:
+        return True
+
+    exception_before_group = re.search(
+        rf"\b(except|excluding|other\s+than|not\s+for|does\s+not\s+apply\s+to|"
+        rf"doesn't\s+apply\s+to|do\s+not\s+apply\s+to|don't\s+apply\s+to)\s+{group_re}\b",
+        ans_low,
+    )
+    return bool(exception_before_group)
+
+
 def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     """Positive framing of who qualifies (the risky pattern is positive-only + omission)."""
     if not re.search(
@@ -330,21 +388,19 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
+    excluded_groups = _source_excluded_groups(doc_low)
     if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
+        return any(_answer_excludes_group(ans_low, group) for group in excluded_groups)
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+    if "contractor" in excluded_groups:
+        if _answer_excludes_group(ans_low, "contractor"):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
-            return True
+    if "part time" in excluded_groups and _answer_excludes_group(ans_low, "part time"):
+        return True
+    if "intern" in excluded_groups and _answer_excludes_group(ans_low, "intern"):
+        return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
             return True
