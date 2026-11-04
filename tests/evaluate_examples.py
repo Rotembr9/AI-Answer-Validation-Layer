@@ -77,10 +77,10 @@ def main() -> None:
         if pred != exp:
             failed.append(f"  {ex['id']}: expected {exp}, got {pred} (conf={r['confidence']})")
 
-        if exp == "Supported":
-            if pred == "Supported":
+        if pred == "Supported":
+            if exp == "Supported":
                 supported_tp += 1
-            elif pred != "Supported":
+            else:
                 supported_fp += 1
         if exp == "Not Supported":
             ns_actual += 1

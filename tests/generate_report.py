@@ -95,8 +95,8 @@ def _run_dataset(rel_path: str) -> DatasetResult:
                 "evidence": r.get("evidence", []),
             }
         )
-        if exp == "Supported":
-            if pred == "Supported":
+        if pred == "Supported":
+            if exp == "Supported":
                 supported_tp += 1
             else:
                 supported_fp += 1
