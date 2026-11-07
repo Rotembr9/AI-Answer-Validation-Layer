@@ -37,6 +37,34 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _norm_for_rules(text: str) -> str:
+    """Normalize wording variants used by handcrafted safety rules."""
+    lowered = text.lower().replace("-", " ")
+    return re.sub(r"\bnonurgent\b", "non urgent", lowered)
+
+
+def _claim_spans(text: str) -> list[str]:
+    """Small clause splitter for mixed SLA answers."""
+    norm = _norm_for_rules(text)
+    spans = re.split(
+        r"[.;\n]+|\s+\band\b\s+(?=(?:urgent|severity|priority|p1|non urgent)\b)",
+        norm,
+    )
+    return [s.strip() for s in spans if s.strip()]
+
+
+def _has_urgent_reference(text: str) -> bool:
+    return bool(re.search(r"\b(urgent|severity\s*1|priority\s*1|p1)\b", text))
+
+
+def _is_urgent_span(text: str) -> bool:
+    return _has_urgent_reference(text) and "non urgent" not in text
+
+
+def _doc_has_urgent_hour_sla(doc_norm: str) -> bool:
+    return "4 business hours" in doc_norm and _has_urgent_reference(doc_norm)
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -49,37 +77,49 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     - Urgent / Severity-1 window stated in *days* when the policy gives *hours* (H-N08-style).
     - Claiming the policy omits an urgent SLA when 4 business hours is stated (H-P10-style).
     """
-    a = answer.lower().replace("-", " ")
-    d = document.lower().replace("-", " ")
+    a = _norm_for_rules(answer)
+    d = _norm_for_rules(document)
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
-    )
-
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
+    if _doc_has_urgent_hour_sla(d):
+        for span in _claim_spans(answer):
+            if not _is_urgent_span(span):
+                continue
+            day_scale_response = (
+                "business day" in span
+                or "calendar day" in span
+                or "full business day" in span
+                or re.search(
+                    r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day",
+                    span,
+                )
+            )
+            if not day_scale_response:
+                continue
             extra = max(extra, 0.92)
             forbid = True
+            break
 
     # Answer denies the policy defines urgent SLA when it does (H-P10-style).
     denial = re.search(
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
-        if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
-            extra = max(extra, 0.76)
-            forbid = True
+    if denial and _doc_has_urgent_hour_sla(d):
+        for span in _claim_spans(answer):
+            if not _is_urgent_span(span):
+                continue
+            if not re.search(
+                r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
+                span,
+            ):
+                continue
+            if "window" in span or "timeframe" in span or "hours" in span:
+                extra = max(extra, 0.76)
+                forbid = True
+                break
 
     return forbid, extra
 
@@ -134,11 +174,11 @@ def contradiction_signals(
     e_tokens = tu.tokenize(top_evidence_line)
     joined_a = " ".join(a_tokens).lower()
     joined_e = " ".join(e_tokens).lower()
-    q_norm = question.lower().replace("-", " ")
+    q_norm = _norm_for_rules(question)
     doc_low = document.lower()
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
-    a_norm = joined_a.replace("-", " ")
-    d_norm = doc_low.replace("-", " ")
+    a_norm = _norm_for_rules(answer)
+    d_norm = _norm_for_rules(document)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -158,7 +198,7 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if "contractors are not eligible" in doc_low and not _answer_excludes_contractors(a_norm):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -200,22 +240,25 @@ def contradiction_signals(
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
-    ):
-        if "4 business hours" in d_norm:
-            penalty = max(penalty, 0.88)
+    for span in _claim_spans(answer):
+        if (
+            _is_urgent_span(span)
+            and "2 business day" in span
+            and "4 business hours" not in span
+        ):
+            if "4 business hours" in d_norm:
+                penalty = max(penalty, 0.88)
+                break
     # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
-        penalty = max(penalty, 0.88)
+    for span in _claim_spans(answer):
+        if (
+            "non urgent" in span
+            and "4 business hours" in span
+            and "2 business days" in d_norm
+            and "not specified" not in span
+        ):
+            penalty = max(penalty, 0.88)
+            break
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
 
@@ -307,6 +350,53 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
     return False
 
 
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    groups: set[str] = set()
+    if re.search(r"\bcontractors?\b.{0,80}\b(not eligible|ineligible|cannot|not allowed)\b", doc_low):
+        groups.add("contractor")
+    if re.search(r"\bpart\s*time\b.{0,80}\b(not eligible|ineligible|cannot|not allowed)\b", doc_low):
+        groups.add("part-time")
+    if re.search(r"\binterns?\b.{0,80}\b(not eligible|ineligible|cannot|not allowed)\b", doc_low):
+        groups.add("intern")
+    return groups
+
+
+def _exception_clause_groups(ans_low: str) -> tuple[bool, set[str]]:
+    groups: set[str] = set()
+    has_exception = False
+    patterns = (
+        r"\bexcept\s+([^.;,]+)",
+        r"\bexcluding\s+([^.;,]+)",
+        r"\bdoes\s+not\s+apply\s+to\s+([^.;,]+)",
+        r"\bdoesn't\s+apply\s+to\s+([^.;,]+)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, ans_low):
+            has_exception = True
+            clause = match.group(1)
+            if re.search(r"\bcontractors?\b", clause):
+                groups.add("contractor")
+            if re.search(r"\bpart\s*time\b", clause):
+                groups.add("part-time")
+            if re.search(r"\binterns?\b", clause):
+                groups.add("intern")
+    return has_exception, groups
+
+
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    patterns = (
+        r"\bexcept\s+contractors?\b",
+        r"\bcontractors?\b.{0,40}\bnot\s+(?:eligible|allowed|permitted|entitled)\b",
+        r"\bcontractors?\b.{0,40}\bineligible\b",
+        r"\bcontractors?\b\s+(?:are|remain)\s+excluded\b",
+        r"\bcontractors?\b.{0,40}\bcannot\s+(?:receive|get|qualify|claim)\b",
+        r"\bcontractors?\b.{0,40}\bcan't\s+(?:receive|get|qualify|claim)\b",
+        r"\bcontractors?\b.{0,40}\bdo(?:es)?\s+not\s+(?:receive|get|qualify|claim)\b",
+        r"\bcontractors?\b.{0,40}\bnot\s+being\s+eligible\b",
+    )
+    return any(re.search(pattern, ans_low) for pattern in patterns)
+
+
 def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     """Positive framing of who qualifies (the risky pattern is positive-only + omission)."""
     if not re.search(
@@ -326,19 +416,20 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    source_groups = _source_excluded_groups(doc_low)
+    has_exception, exception_groups = _exception_clause_groups(ans_low)
+    if has_exception:
+        return bool(exception_groups) and exception_groups <= source_groups
+
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
-        return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_excludes_contractors(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
