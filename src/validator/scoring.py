@@ -37,6 +37,46 @@ EVIDENCE_FLOOR = 0.12  # below this: "no relevant evidence"
 NUMBER_MISS_PENALTY = 0.45
 
 
+def _claim_spans(text: str) -> list[str]:
+    """Split mixed answers so one clause cannot mask another clause's safety checks."""
+    normalized = text.lower().replace("-", " ")
+    spans = [
+        p.strip()
+        for p in re.split(r"(?:[.;!?]+|,\s*(?:and|but|while)\s+)", normalized)
+        if p.strip()
+    ]
+    return spans or [normalized]
+
+
+def _urgent_scope(text: str) -> bool:
+    return (
+        re.search(r"(?<!non )\burgent\b", text) is not None
+        or "severity" in text
+        or "priority 1" in text
+        or re.search(r"\bp1\b", text) is not None
+    )
+
+
+def _nonurgent_uses_urgent_window(text: str) -> bool:
+    return (
+        re.search(r"\b(?:non\s+urgent|nonurgent)\b.*\b4 business hours\b", text)
+        is not None
+    )
+
+
+def _day_scale_response(text: str) -> bool:
+    return (
+        "business day" in text
+        or "calendar day" in text
+        or "full business day" in text
+        or re.search(
+            r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day",
+            text,
+        )
+        is not None
+    )
+
+
 def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     """
     Extra gates for *never* labeling unsafe answers as Supported.
@@ -54,20 +94,22 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
     extra = 0.0
     forbid = False
 
-    urgent_scope = (
-        ("urgent" in a or "severity" in a)
-        and "non urgent" not in a
+    urgent_hour_sla_in_source = (
+        ("4 business hours" in d or "business hours" in d)
+        and (
+            "urgent" in d
+            or "severity" in d
+            or "priority 1" in d
+            or re.search(r"\bp1\b", d) is not None
+        )
     )
 
     # Day-scale response window for urgent/Severity-1 vs document's 4 business hours
-    if urgent_scope and ("4 business hours" in d or "business hours" in d):
-        day_scale_response = (
-            "business day" in a
-            or "calendar day" in a
-            or "full business day" in a
-            or re.search(r"\b(one|two|three|1|2|3)\s+(full\s+)?(calendar\s+)?(business\s+)?day", a)
-        )
-        if day_scale_response and "severity 1" in d:
+    if urgent_hour_sla_in_source:
+        if any(
+            _urgent_scope(span) and _day_scale_response(span) and "business hours" not in span
+            for span in _claim_spans(answer)
+        ):
             extra = max(extra, 0.92)
             forbid = True
 
@@ -76,7 +118,12 @@ def supported_safety_flags(answer: str, document: str) -> tuple[bool, float]:
         r"\b(does not|don't|do not|doesn't)\s+(give|list|state|define|specify|mention)",
         a,
     )
-    if denial and ("urgent" in a or "severity" in a):
+    if denial and (
+        re.search(r"(?<!non )\burgent\b", a)
+        or "severity" in a
+        or "priority 1" in a
+        or re.search(r"\bp1\b", a)
+    ):
         if ("window" in a or "timeframe" in a or "hours" in a) and "4 business hours" in d:
             extra = max(extra, 0.76)
             forbid = True
@@ -139,6 +186,7 @@ def contradiction_signals(
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
     d_norm = doc_low.replace("-", " ")
+    answer_spans = _claim_spans(answer)
     penalty = 0.0
     # Avoid penalizing correct negations (e.g. "amounts above $500 are not reimbursed")
     # where the matched line is phrased positively but is the same rule.
@@ -200,21 +248,17 @@ def contradiction_signals(
         if "15" in doc_low or "15th" in doc_low:
             penalty = max(penalty, 0.85)
     # Urgent vs non-urgent SLA mix-ups (require true "urgent", not the substring inside "non urgent")
-    if (
-        "non urgent" not in a_norm
-        and "urgent" in a_norm
-        and "2 business day" in a_norm
-        and "4 business hours" not in a_norm
+    if any(
+        _urgent_scope(span) and "2 business day" in span and "4 business hours" not in span
+        for span in answer_spans
     ):
         if "4 business hours" in d_norm:
             penalty = max(penalty, 0.88)
     # Non-urgent tickets must not use the urgent SLA window (skip if answer hedges, e.g. "not specified").
-    if (
-        "non urgent" in a_norm
-        and "4 business hours" in a_norm
-        and "2 business days" in d_norm
-        and "not specified" not in a_norm
-    ):
+    if any(
+        _nonurgent_uses_urgent_window(span) and "not specified" not in span
+        for span in answer_spans
+    ) and "2 business days" in d_norm:
         penalty = max(penalty, 0.88)
 
     # --- Question-scoped rules (sharpen N→P without touching supported_safety_flags) ---
