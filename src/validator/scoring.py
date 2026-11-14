@@ -119,6 +119,60 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+_GROUP_TERMS = {
+    "contractor": r"\bcontractors?\b",
+    "part_time": r"\bpart\s+time\b",
+    "intern": r"\binterns?\b",
+}
+
+
+def _has_group(text: str, group: str) -> bool:
+    return bool(re.search(_GROUP_TERMS[group], text))
+
+
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    """Worker groups the source explicitly excludes from a benefit/permission."""
+    groups: set[str] = set()
+    for group in _GROUP_TERMS:
+        if not _has_group(doc_low, group):
+            continue
+        if re.search(
+            rf"{_GROUP_TERMS[group]}.{{0,40}}"
+            r"(not\s+eligible|ineligible|not\s+allowed|cannot|can't|do\s+not|don't|excluded)",
+            doc_low,
+        ):
+            groups.add(group)
+    return groups
+
+
+def _answer_excluded_groups(ans_low: str) -> set[str]:
+    """Worker groups the answer itself excludes, including exception/applicability wording."""
+    groups: set[str] = set()
+    for group in _GROUP_TERMS:
+        term = _GROUP_TERMS[group]
+        if not _has_group(ans_low, group):
+            continue
+        if re.search(
+            rf"{term}.{{0,50}}"
+            r"(not\s+eligible|ineligible|not\s+allowed|cannot|can't|do\s+not|don't|"
+            r"does\s+not\s+apply|doesn't\s+apply|excluded|cannot\s+receive|can't\s+receive)",
+            ans_low,
+        ):
+            groups.add(group)
+            continue
+        if re.search(rf"\bexcept\b[^.;:]*{term}", ans_low):
+            groups.add(group)
+            continue
+        if re.search(rf"\bdoes(?:\s+not|n't)\s+apply\s+to\b[^.;:]*{term}", ans_low):
+            groups.add(group)
+            continue
+    return groups
+
+
+def _answer_excludes_group(ans_low: str, group: str) -> bool:
+    return group in _answer_excluded_groups(ans_low)
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +212,10 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractor" in _source_excluded_groups(d_norm)
+            and not _answer_excludes_group(a_norm, "contractor")
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -326,24 +383,24 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    source_groups = _source_excluded_groups(doc_low)
+    answer_groups = _answer_excluded_groups(ans_low)
+    if answer_groups - source_groups:
+        return False
+    if answer_groups & source_groups:
+        return True
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
-        return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
+        if _answer_excludes_group(ans_low, "contractor"):
             return True
     if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
+        if _answer_excludes_group(ans_low, "part_time"):
             return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
