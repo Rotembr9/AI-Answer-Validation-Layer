@@ -152,13 +152,14 @@ def contradiction_signals(
             penalty = max(penalty, 0.95)
 
     # Contractor eligibility: explicit mismatch patterns
+    contractor_denied = _answer_denies_contractor_eligibility(a_norm)
     if "contractor" in joined_a and "eligible" in joined_a and "full-time" in joined_e:
-        if "not" not in joined_a and "only" in joined_e:
+        if not contractor_denied and "not" not in joined_a and "only" in joined_e:
             penalty = max(penalty, 0.9)
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if "contractors are not eligible" in doc_low and not contractor_denied:
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -307,6 +308,68 @@ def _source_has_exclusivity_marker(doc_low: str) -> bool:
     return False
 
 
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    groups: set[str] = set()
+    if "contractor" in doc_low and (
+        "not eligible" in doc_low
+        or "ineligible" in doc_low
+        or "cannot" in doc_low
+        or "not allowed" in doc_low
+        or "excluded" in doc_low
+        or re.search(r"\bfull[\s-]time\s+staff\s+only\b", doc_low)
+    ):
+        groups.add("contractor")
+    if ("part time" in doc_low or "part-time" in doc_low) and (
+        "not eligible" in doc_low
+        or "ineligible" in doc_low
+        or "cannot" in doc_low
+        or "not allowed" in doc_low
+        or "excluded" in doc_low
+    ):
+        groups.add("part time")
+    if "intern" in doc_low and (
+        "not eligible" in doc_low
+        or "ineligible" in doc_low
+        or "cannot" in doc_low
+        or "not allowed" in doc_low
+        or "excluded" in doc_low
+    ):
+        groups.add("intern")
+    return groups
+
+
+def _answer_denies_contractor_eligibility(ans_low: str) -> bool:
+    if "contractor" not in ans_low:
+        return False
+    if re.search(
+        r"\bcontractors?\b.{0,25}\b(not\s+eligible|ineligible|excluded|not\s+allowed|not\s+included|not\s+covered)\b",
+        ans_low,
+    ):
+        return True
+    if re.search(
+        r"\bcontractors?\b.{0,25}\b(cannot|can\s+not|can't|do\s+not|don't|does\s+not|doesn't)\s+"
+        r"(receive|get|qualify|claim|obtain|use|participate)",
+        ans_low,
+    ):
+        return True
+    if re.search(r"\b(except|excluding|excludes)\s+contractors?\b", ans_low):
+        return True
+    if re.search(r"\b(does\s+not|doesn't|do\s+not|don't)\s+apply\s+to\s+contractors?\b", ans_low):
+        return True
+    return False
+
+
+def _answer_names_source_exclusion(ans_low: str, doc_low: str) -> bool:
+    groups = _source_excluded_groups(doc_low)
+    if "contractor" in groups and _answer_denies_contractor_eligibility(ans_low):
+        return True
+    if "part time" in groups and ("part time" in ans_low or "part-time" in ans_low):
+        return True
+    if "intern" in groups and "intern" in ans_low:
+        return True
+    return False
+
+
 def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     """Positive framing of who qualifies (the risky pattern is positive-only + omission)."""
     if not re.search(
@@ -329,16 +392,17 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
-        return True
+        return not (
+            ("except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low)
+            and not _answer_names_source_exclusion(ans_low, doc_low)
+        )
     if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
+        return _answer_names_source_exclusion(ans_low, doc_low)
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
+        if _answer_denies_contractor_eligibility(ans_low):
             return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
@@ -351,7 +415,12 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     return False
 
 
-def incomplete_exclusivity_penalty(question: str, answer: str, document: str) -> float:
+def incomplete_exclusivity_penalty(
+    question: str,
+    answer: str,
+    document: str,
+    top_evidence_line: str | None = None,
+) -> float:
     """
     Eligibility-style questions + exclusivity-marked source + positive-only answer that
     omits the document's explicit exclusion → penalty in (MAX_CONTRA_FOR_SUPPORTED, 0.80)
@@ -366,8 +435,8 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _EXCLUSIVITY_QUESTION_RE.search(q):
         return 0.0
 
-    doc_low = document.lower().replace("-", " ")
-    if not _source_has_exclusivity_marker(doc_low):
+    source_low = (top_evidence_line or document).lower().replace("-", " ")
+    if not _source_has_exclusivity_marker(source_low):
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
@@ -375,7 +444,7 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
 
-    if _answer_covers_source_exclusivity(ans_low, doc_low):
+    if _answer_covers_source_exclusivity(ans_low, source_low):
         return 0.0
 
     # Penalty above Supported cap but below forced NS (0.80), and in Partial tier band
