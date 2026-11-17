@@ -119,6 +119,88 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    """Small domain vocabulary for groups that are explicitly excluded in source text."""
+    groups: set[str] = set()
+    if "contractor" in doc_low and (
+        "not eligible" in doc_low
+        or "ineligible" in doc_low
+        or "cannot receive" in doc_low
+        or "cannot get" in doc_low
+        or "excluded" in doc_low
+        or "not allowed" in doc_low
+    ):
+        groups.add("contractor")
+    if ("part-time" in doc_low or "part time" in doc_low) and (
+        "not eligible" in doc_low or "ineligible" in doc_low or "not allowed" in doc_low
+    ):
+        groups.add("part time")
+    return groups
+
+
+def _target_matches_excluded_group(target: str, excluded_groups: set[str]) -> bool:
+    target = target.lower().replace("-", " ")
+    for group in excluded_groups:
+        if group in target:
+            return True
+        if group == "contractor" and re.search(r"\bcontractors?\b", target):
+            return True
+        if group == "part time" and re.search(r"\bpart\s+time\b", target):
+            return True
+    return False
+
+
+def _exception_targets(ans_low: str) -> list[str]:
+    """Extract explicit exception/exclusion targets from answer text."""
+    targets: list[str] = []
+    patterns = [
+        r"\bexcept(?:\s+for)?\s+([^.;,]+)",
+        r"\bdoes(?:\s+not|n't)\s+apply\s+to\s+([^.;,]+)",
+        r"\bdo\s+not\s+apply\s+to\s+([^.;,]+)",
+        r"\b([a-z][a-z\s-]{0,40}?)\s+are\s+excluded\b",
+        r"\b([a-z][a-z\s-]{0,40}?)\s+are\s+not\s+eligible\b",
+        r"\b([a-z][a-z\s-]{0,40}?)\s+are\s+ineligible\b",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, ans_low):
+            targets.append(match.group(1).strip())
+    return targets
+
+
+def _answer_has_mismatched_exclusion_target(ans_low: str, doc_low: str) -> bool:
+    excluded_groups = _source_excluded_groups(doc_low)
+    if not excluded_groups:
+        return False
+    return any(
+        not _target_matches_excluded_group(target, excluded_groups)
+        for target in _exception_targets(ans_low)
+    )
+
+
+def _answer_covers_contractor_exclusion(ans_low: str, doc_low: str) -> bool:
+    if "contractor" not in doc_low or "contractor" not in ans_low:
+        return False
+    if "contractor" not in _source_excluded_groups(doc_low):
+        return False
+    if re.search(r"\bexcept(?:\s+for)?\s+contractors?\b", ans_low):
+        return True
+    if re.search(r"\bdoes(?:\s+not|n't)\s+apply\s+to\s+contractors?\b", ans_low):
+        return True
+    if re.search(
+        r"\bcontractors?\s+are\s+(?:explicitly\s+)?(not\s+eligible|ineligible|excluded|not\s+allowed)\b",
+        ans_low,
+    ):
+        return True
+    if re.search(
+        r"\bcontractors?\s+(cannot|can't|can\s+not|do\s+not|don't)\s+(receive|get|claim|qualify)",
+        ans_low,
+    ):
+        return True
+    if re.search(r"\bno\s+contractors?\b", ans_low):
+        return True
+    return False
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +240,11 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and "not eligible" not in joined_a
+            and not _answer_covers_contractor_exclusion(a_norm, d_norm)
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -326,21 +412,21 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    excluded_groups = _source_excluded_groups(doc_low)
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
     if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
+        return any(
+            _target_matches_excluded_group(target, excluded_groups)
+            for target in _exception_targets(ans_low)
+        )
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
+        if _answer_covers_contractor_exclusion(ans_low, doc_low):
             return True
     if "part-time" in doc_low and "not" in doc_low:
         if "part-time" in ans_low or "part time" in ans_low:
@@ -371,6 +457,9 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
         return 0.0
 
     ans_low = answer.lower().replace("-", " ")
+
+    if _answer_has_mismatched_exclusion_target(ans_low, doc_low):
+        return 0.56
 
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
