@@ -50,8 +50,30 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_generic_exception_does_not_cover_source_exclusion() -> None:
+    """Unrelated exception wording must not hide the contractor exclusion."""
+    q = "Who is eligible for the remote stipend?"
+    a = "Full-time staff are eligible for the remote stipend except interns."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Partial", r
+
+
+def test_source_exclusion_exception_remains_supported() -> None:
+    """Contractor-specific exclusion paraphrases still cover the policy condition."""
+    q = "Who is eligible for the remote stipend?"
+    a = "Full-time staff are eligible for the remote stipend except contractors."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+    a = "The remote stipend applies to full-time staff and does not apply to contractors."
+    r = validate(q, a, _doc())
+    assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
+    test_generic_exception_does_not_cover_source_exclusion()
+    test_source_exclusion_exception_remains_supported()
     print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
