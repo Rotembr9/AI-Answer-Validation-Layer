@@ -136,6 +136,7 @@ def contradiction_signals(
     joined_e = " ".join(e_tokens).lower()
     q_norm = question.lower().replace("-", " ")
     doc_low = document.lower()
+    answer_low = answer.lower().replace("-", " ")
     # Tokenizer splits "non-urgent" → tokens "non", "urgent"; hyphen-normalize for substring rules.
     a_norm = joined_a.replace("-", " ")
     d_norm = doc_low.replace("-", " ")
@@ -158,7 +159,11 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            "contractors are not eligible" in doc_low
+            and "not eligible" not in joined_a
+            and not _answer_excludes_contractors(answer_low)
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -321,27 +326,68 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
+def _answer_has_exception_clause(ans_low: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(except|excluding)\b|\b(do(?:es)? not|do(?:es)n't)\s+apply\b",
+            ans_low,
+        )
+    )
+
+
+def _source_excludes_contractors(doc_low: str) -> bool:
+    return bool(
+        "contractors are not eligible" in doc_low
+        or re.search(r"\bcontractors?\b.{0,80}\bnot\s+eligible\b", doc_low)
+    )
+
+
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    """Recognize common ways an answer states the source's contractor exclusion."""
+    text = re.sub(r"\s+", " ", ans_low).strip()
+    contractor = r"\bcontractors?\b"
+    contractor_first = (
+        contractor
+        + r".{0,50}\b("
+        + r"not\s+(being\s+)?(eligible|allowed|entitled)|"
+        + r"ineligible|excluded|"
+        + r"cannot\s+(receive|get|qualify)|can't\s+(receive|get|qualify)|"
+        + r"do\s+not\s+(receive|get|qualify)|don't\s+(receive|get|qualify)|"
+        + r"does\s+not\s+(receive|get|qualify)|doesn't\s+(receive|get|qualify)"
+        + r")\b"
+    )
+    exclusion_first = (
+        r"\b("
+        + r"except|excluding|"
+        + r"not\s+eligible|ineligible|excluded|"
+        + r"does\s+not\s+apply|doesn't\s+apply|"
+        + r"do\s+not\s+apply|don't\s+apply|"
+        + r"not\s+allowed"
+        + r")\b.{0,50}"
+        + contractor
+    )
+    return bool(re.search(contractor_first, text) or re.search(exclusion_first, text))
+
+
 def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    has_exception_clause = _answer_has_exception_clause(ans_low)
+    source_excludes_contractors = _source_excludes_contractors(doc_low)
+
+    if source_excludes_contractors and _answer_excludes_contractors(ans_low):
+        return True
+    if has_exception_clause:
+        # Generic exception wording only covers exclusivity when it names the source exclusion.
+        return False
+
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
     if "part-time" in doc_low and "not" in doc_low:
         if "part-time" in ans_low or "part time" in ans_low:
             return True
