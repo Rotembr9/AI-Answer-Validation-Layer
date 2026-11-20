@@ -50,8 +50,34 @@ def test_incomplete_eligibility_is_partial_not_supported() -> None:
     assert r["verdict"] == "Partial", r
 
 
+def test_unrelated_exception_does_not_cover_source_exclusion() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    doc = "Full-time staff only; contractors are not eligible"
+    answers = [
+        "Full-time staff are eligible except interns.",
+        "Full-time staff are eligible; the policy does not apply to interns.",
+    ]
+    for a in answers:
+        r = validate(q, a, doc)
+        assert r["verdict"] == "Partial", r
+
+
+def test_named_source_exception_covers_exclusivity() -> None:
+    q = "Who is eligible for the remote work stipend?"
+    doc = "Full-time staff only; contractors are not eligible"
+    answers = [
+        "Full-time staff are eligible except contractors.",
+        "Full-time staff are eligible; contractors cannot receive the stipend.",
+    ]
+    for a in answers:
+        r = validate(q, a, doc)
+        assert r["verdict"] == "Supported", r
+
+
 if __name__ == "__main__":
     test_h_n08_never_supported()
     test_h_p10_never_supported()
     test_incomplete_eligibility_is_partial_not_supported()
-    print("ok: H-N08 and H-P10 are not Supported; exclusivity example is Partial")
+    test_unrelated_exception_does_not_cover_source_exclusion()
+    test_named_source_exception_covers_exclusivity()
+    print("ok: safety gates and exclusivity exception checks passed")
