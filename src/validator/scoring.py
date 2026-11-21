@@ -119,6 +119,78 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+_EXCLUSION_CUE_RE = r"(not\s+eligible|cannot|can't|not\s+allowed|ineligible|excluded)"
+
+
+def _text_excludes_group(text_low: str, group_re: str) -> bool:
+    return bool(
+        re.search(rf"\b{group_re}\b.{{0,80}}\b{_EXCLUSION_CUE_RE}\b", text_low)
+        or re.search(rf"\b{_EXCLUSION_CUE_RE}\b.{{0,80}}\b{group_re}\b", text_low)
+    )
+
+
+def _source_excludes_contractors(doc_low: str) -> bool:
+    return _text_excludes_group(doc_low, r"contractors?")
+
+
+def _answer_excludes_contractors(ans_low: str) -> bool:
+    if "contractor" not in ans_low:
+        return False
+    return bool(
+        re.search(r"\b(except|excluding)\s+contractors?\b", ans_low)
+        or re.search(
+            r"\b(does not|doesn't|do not|don't)\s+apply\s+to\s+contractors?\b",
+            ans_low,
+        )
+        or re.search(r"\bno\s+contractors?\b", ans_low)
+        or re.search(
+            r"\bcontractors?\s+(are\s+)?([a-z]+\s+){0,2}"
+            r"(not\s+eligible|not\s+being\s+eligible|ineligible|excluded|not\s+allowed)\b",
+            ans_low,
+        )
+        or re.search(
+            r"\bcontractors?\s+(cannot|can't|can\s+not|do\s+not|don't|may\s+not)\s+"
+            r"(receive|get|qualify|claim|obtain|participate|be\s+eligible|be\s+reimbursed)\b",
+            ans_low,
+        )
+    )
+
+
+def _source_excludes_part_time(doc_low: str) -> bool:
+    return _text_excludes_group(doc_low, r"part\s+time")
+
+
+def _answer_excludes_part_time(ans_low: str) -> bool:
+    if "part time" not in ans_low:
+        return False
+    return bool(
+        re.search(r"\b(except|excluding)\s+part\s+time\b", ans_low)
+        or re.search(
+            r"\b(does not|doesn't|do not|don't)\s+apply\s+to\s+part\s+time\b",
+            ans_low,
+        )
+        or re.search(
+            r"\bpart\s+time\b.{0,40}\b(not\s+eligible|ineligible|excluded|not\s+allowed|cannot|can't)\b",
+            ans_low,
+        )
+        or re.search(r"\b(no)\s+part\s+time\b", ans_low)
+    )
+
+
+def _answer_uses_exception_language(ans_low: str) -> bool:
+    return bool(
+        re.search(r"\b(except|excluding)\b", ans_low)
+        or re.search(r"\b(does not|doesn't|do not|don't)\s+apply\b", ans_low)
+    )
+
+
+def _answer_exception_matches_source_exclusion(ans_low: str, doc_low: str) -> bool:
+    return bool(
+        (_source_excludes_contractors(doc_low) and _answer_excludes_contractors(ans_low))
+        or (_source_excludes_part_time(doc_low) and _answer_excludes_part_time(ans_low))
+    )
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +230,11 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        if (
+            _source_excludes_contractors(d_norm)
+            and "not eligible" not in joined_a
+            and not _answer_excludes_contractors(a_norm)
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -330,21 +406,11 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
         return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
-        return True
     # Named exclusion from policy text
-    if "contractors are not eligible" in doc_low or (
-        "contractor" in doc_low and "not eligible" in doc_low
-    ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
-        if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
-            return True
-    if "part-time" in doc_low and "not" in doc_low:
-        if "part-time" in ans_low or "part time" in ans_low:
-            return True
+    if _source_excludes_contractors(doc_low) and _answer_excludes_contractors(ans_low):
+        return True
+    if _source_excludes_part_time(doc_low) and _answer_excludes_part_time(ans_low):
+        return True
     if "are not allowed" in doc_low:
         if "not allowed" in ans_low or "cannot" in ans_low:
             return True
@@ -374,6 +440,11 @@ def incomplete_exclusivity_penalty(question: str, answer: str, document: str) ->
 
     if not _answer_affirms_in_group_eligibility(ans_low):
         return 0.0
+
+    if _answer_uses_exception_language(ans_low) and not _answer_exception_matches_source_exclusion(
+        ans_low, doc_low
+    ):
+        return 0.56
 
     if _answer_covers_source_exclusivity(ans_low, doc_low):
         return 0.0
