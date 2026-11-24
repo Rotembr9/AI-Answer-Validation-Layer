@@ -119,6 +119,38 @@ def number_match_score(answer: str, document: str) -> tuple[float, bool]:
     return hits / len(an), unknown
 
 
+_EXCLUSION_GROUP_PATTERNS = {
+    "contractor": r"\bcontractors?\b",
+    "part-time": r"\bpart\s+time\b",
+    "intern": r"\binterns?\b",
+}
+
+_EXCLUSION_CUE_RE = (
+    r"not\s+eligible|ineligible|cannot\s+receive|can't\s+receive|"
+    r"cannot\s+get|can't\s+get|are\s+excluded|is\s+excluded|"
+    r"not\s+allowed|does\s+not\s+apply|doesn't\s+apply"
+)
+
+
+def _group_is_excluded(text_low: str, group: str) -> bool:
+    """Return True when text explicitly excludes a recognized group."""
+    group_re = _EXCLUSION_GROUP_PATTERNS[group]
+    return bool(
+        re.search(rf"{group_re}(?:\W+\w+){{0,6}}\W+(?:{_EXCLUSION_CUE_RE})", text_low)
+        or re.search(rf"(?:{_EXCLUSION_CUE_RE})(?:\W+\w+){{0,6}}\W+{group_re}", text_low)
+        or re.search(rf"\bexcept(?:\W+\w+){{0,4}}\W+{group_re}", text_low)
+        or re.search(rf"\bexcluding(?:\W+\w+){{0,4}}\W+{group_re}", text_low)
+    )
+
+
+def _excluded_groups_in_text(text_low: str) -> set[str]:
+    return {
+        group
+        for group in _EXCLUSION_GROUP_PATTERNS
+        if _group_is_excluded(text_low, group)
+    }
+
+
 def contradiction_signals(
     answer: str,
     top_evidence_line: str,
@@ -158,7 +190,9 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        contractor_excluded_in_doc = _group_is_excluded(d_norm, "contractor")
+        contractor_excluded_in_answer = _group_is_excluded(a_norm, "contractor")
+        if contractor_excluded_in_doc and not contractor_excluded_in_answer:
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -286,6 +320,8 @@ _EXCLUSIVITY_QUESTION_RE = re.compile(
 
 # Source cues that the policy states exclusivity or explicit non-eligibility.
 def _source_has_exclusivity_marker(doc_low: str) -> bool:
+    if _excluded_groups_in_text(doc_low):
+        return True
     if "not eligible" in doc_low:
         return True
     if "are not allowed" in doc_low:
@@ -326,11 +362,19 @@ def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    source_exclusions = _excluded_groups_in_text(doc_low)
+    answer_exclusions = _excluded_groups_in_text(ans_low)
+    if answer_exclusions:
+        return bool(source_exclusions) and answer_exclusions <= source_exclusions
+    if re.search(r"\b(except|excluding)\b", ans_low) or re.search(
+        r"\bdoes(?:\s+not|n't)\s+apply\b", ans_low
+    ):
+        # Generic or unsupported exceptions do not cover a source-specific exclusion.
+        return False
+
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
-        return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
