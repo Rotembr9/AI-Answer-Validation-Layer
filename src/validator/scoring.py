@@ -158,7 +158,12 @@ def contradiction_signals(
 
     # Doc-level: contractors explicitly not eligible for stipend / reimbursement
     if "contractor" in joined_a:
-        if "contractors are not eligible" in doc_low and "not eligible" not in joined_a:
+        answer_excludes_contractors = _answer_excludes_group(a_norm, "contractor")
+        if (
+            "contractors are not eligible" in doc_low
+            and "not eligible" not in joined_a
+            and not answer_excludes_contractors
+        ):
             # Strong explicit lie about contractor eligibility (short affirmative answers)
             if "contractors are eligible" in joined_a or "yes," in joined_a[:40]:
                 penalty = max(penalty, 0.88)
@@ -321,25 +326,76 @@ def _answer_affirms_in_group_eligibility(ans_low: str) -> bool:
     return True
 
 
+def _source_excluded_groups(doc_low: str) -> set[str]:
+    """Named groups that the source explicitly excludes from eligibility."""
+    groups: set[str] = set()
+    cue = r"\b(not\s+eligible|ineligible|not\s+allowed|cannot|can't|excluded)\b"
+
+    def source_excludes(group_pattern: str) -> bool:
+        return bool(
+            re.search(rf"{group_pattern}[^.;\n]{{0,80}}{cue}", doc_low)
+            or re.search(rf"{cue}[^.;\n]{{0,80}}{group_pattern}", doc_low)
+        )
+
+    if source_excludes(r"\bcontractors?\b"):
+        groups.add("contractor")
+    if source_excludes(r"\bpart[\s-]time\b"):
+        groups.add("part_time")
+    if source_excludes(r"\binterns?\b"):
+        groups.add("intern")
+    return groups
+
+
+def _answer_mentions_excluded_group(ans_low: str, group: str) -> bool:
+    if group == "contractor":
+        return bool(re.search(r"\bcontractors?\b", ans_low))
+    if group == "part_time":
+        return bool(re.search(r"\bpart[\s-]time\b", ans_low))
+    if group == "intern":
+        return bool(re.search(r"\binterns?\b", ans_low))
+    return False
+
+
+def _answer_excludes_group(ans_low: str, group: str) -> bool:
+    """Whether answer text states that this source-excluded group is outside the benefit."""
+    if not _answer_mentions_excluded_group(ans_low, group):
+        return False
+    return bool(
+        re.search(r"\bexcept\b", ans_low)
+        or re.search(r"\bdoes(?:\s+not|n't)\s+apply\b", ans_low)
+        or re.search(
+            r"\b(not(?:\s+\w+){0,3}\s+eligible|ineligible|cannot|can't|no|excluded)\b",
+            ans_low,
+        )
+    )
+
+
+def _answer_has_unmatched_exception(ans_low: str, doc_low: str) -> bool:
+    """Generic exceptions do not cover a different exclusion in the source."""
+    if not re.search(r"\bexcept\b|\bdoes(?:\s+not|n't)\s+apply\b", ans_low):
+        return False
+    source_groups = _source_excluded_groups(doc_low)
+    return not any(_answer_excludes_group(ans_low, group) for group in source_groups)
+
+
 def _answer_covers_source_exclusivity(ans_low: str, doc_low: str) -> bool:
     """
     True if the answer reflects exclusivity or the explicit exclusion from the doc
     (not necessarily verbatim — enough that it is not a naive positive-only slice).
     """
+    source_groups = _source_excluded_groups(doc_low)
+    if any(_answer_excludes_group(ans_low, group) for group in source_groups):
+        return True
+    if _answer_has_unmatched_exception(ans_low, doc_low):
+        return False
     if re.search(r"\bonly\b", ans_low) and re.search(
         r"\b(full[\s-]time|staff|employee)\b", ans_low
     ):
-        return True
-    if "except" in ans_low or "does not apply" in ans_low or "doesn't apply" in ans_low:
         return True
     # Named exclusion from policy text
     if "contractors are not eligible" in doc_low or (
         "contractor" in doc_low and "not eligible" in doc_low
     ):
-        if "contractor" in ans_low and (
-            "not" in ans_low or "ineligible" in ans_low or "no" in ans_low[:60]
-        ):
-            return True
         if re.search(r"contractors?\s+are\s+not\s+eligible", ans_low):
             return True
     if "part-time" in doc_low and "not" in doc_low:
